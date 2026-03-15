@@ -27,6 +27,7 @@ public class BreakService {
 
     private final BreakRepository breakRepository;
     private final UserRepository userRepository;
+    private final ValidationService validationService;
 
     @Transactional(readOnly = true)
     public List<BreakResponse> listBreaks(UUID userId) {
@@ -37,6 +38,8 @@ public class BreakService {
 
     @Transactional
     public BreakResponse createBreak(CreateBreakRequest request, UUID userId) {
+        validateBreakRequest(request);
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
@@ -56,6 +59,8 @@ public class BreakService {
 
     @Transactional
     public BreakResponse updateBreak(UUID breakId, CreateBreakRequest request, UUID userId) {
+        validateBreakRequest(request);
+
         Break existingBreak = breakRepository.findById(breakId)
                 .orElseThrow(() -> new ResourceNotFoundException("Break not found"));
 
@@ -72,6 +77,21 @@ public class BreakService {
         existingBreak = breakRepository.save(existingBreak);
 
         return mapToBreakResponse(existingBreak);
+    }
+
+    private void validateBreakRequest(CreateBreakRequest request) {
+        validationService.requireNotBlank(request.getLabel(), "label");
+        validationService.requireMaxLength(request.getLabel(), "label", 255);
+        validationService.requireNotBlank(request.getStartTime(), "startTime");
+        validationService.requireNotBlank(request.getEndTime(), "endTime");
+
+        LocalTime start = LocalTime.parse(request.getStartTime());
+        LocalTime end = LocalTime.parse(request.getEndTime());
+        validationService.requireAfter(end, start, "endTime");
+
+        validationService.requireNotNull(request.getRecurrence(), "recurrence");
+        validationService.requireNotNull(request.getRecurrence().getType(), "recurrence.type");
+        validationService.requirePositive(request.getRecurrence().getInterval(), "recurrence.interval");
     }
 
     @Transactional

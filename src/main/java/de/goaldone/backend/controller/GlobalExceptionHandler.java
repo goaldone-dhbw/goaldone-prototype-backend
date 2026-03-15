@@ -3,6 +3,7 @@ package de.goaldone.backend.controller;
 import de.goaldone.backend.exception.ConflictException;
 import de.goaldone.backend.exception.GoneException;
 import de.goaldone.backend.exception.ResourceNotFoundException;
+import de.goaldone.backend.exception.ValidationException;
 import de.goaldone.backend.model.FieldError;
 import de.goaldone.backend.model.ProblemDetail;
 import jakarta.servlet.http.HttpServletRequest;
@@ -50,6 +51,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ProblemDetail> handleBadCredentials(BadCredentialsException ex, HttpServletRequest request) {
         return createProblemResponse(HttpStatus.UNAUTHORIZED, "Unauthorized", ex.getMessage(), "unauthorized", request);
+    }
+
+    @ExceptionHandler(ValidationException.class)
+    public ResponseEntity<ProblemDetail> handleValidation(ValidationException ex, HttpServletRequest request) {
+        FieldError fieldError = FieldError.builder()
+                .field(ex.getField())
+                .message(ex.getMessage())
+                .build();
+
+        ProblemDetail problem = buildProblem(HttpStatus.BAD_REQUEST, "Validation Error", "Invalid request content.", "validation-error", request);
+        problem.setErrors(List.of(fieldError));
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problem);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

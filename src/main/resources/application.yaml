@@ -26,3 +26,6 @@ app:
   mail:
     from: noreply@goaldone.de
     invitation-link-base: ${APP_BASE_URL:http://localhost:4200}/auth/accept-invitation
+  scheduler:
+    cleanup-cron: "0 0 2 * * *"
+    invitation-cleanup-cron: "0 15 2 * * *"

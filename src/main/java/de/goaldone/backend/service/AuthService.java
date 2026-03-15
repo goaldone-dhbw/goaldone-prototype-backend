@@ -33,12 +33,17 @@ public class AuthService {
     private final InvitationRepository invitationRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final ValidationService validationService;
 
     @Value("${app.jwt.refresh-token-expiry}")
     private long refreshTokenExpirySeconds;
 
     @Transactional
     public LoginResponse login(LoginRequest request) {
+        validationService.requireNotBlank(request.getEmail(), "email");
+        validationService.requireValidEmail(request.getEmail());
+        validationService.requireNotBlank(request.getPassword(), "password");
+
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
 
@@ -95,6 +100,10 @@ public class AuthService {
 
     @Transactional
     public void changePassword(ChangePasswordRequest request) {
+        validationService.requireNotBlank(request.getCurrentPassword(), "currentPassword");
+        validationService.requireNotBlank(request.getNewPassword(), "newPassword");
+        validationService.requireMinLength(request.getNewPassword(), "newPassword", 8);
+
         String userIdStr = SecurityContextHolder.getContext().getAuthentication().getName();
         User user = userRepository.findById(UUID.fromString(userIdStr))
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -112,6 +121,13 @@ public class AuthService {
 
     @Transactional
     public LoginResponse acceptInvitation(String token, AcceptInvitationRequest request) {
+        validationService.requireNotBlank(request.getFirstName(), "firstName");
+        validationService.requireMaxLength(request.getFirstName(), "firstName", 100);
+        validationService.requireNotBlank(request.getLastName(), "lastName");
+        validationService.requireMaxLength(request.getLastName(), "lastName", 100);
+        validationService.requireNotBlank(request.getPassword(), "password");
+        validationService.requireMinLength(request.getPassword(), "password", 8);
+
         Invitation invitation = invitationRepository.findByToken(token)
                 .orElseThrow(() -> new ResourceNotFoundException("Invitation not found"));
 

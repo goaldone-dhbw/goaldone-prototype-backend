@@ -32,6 +32,7 @@ public class ScheduleService {
     private final TaskRepository taskRepository;
     private final BreakRepository breakRepository;
     private final UserRepository userRepository;
+    private final ValidationService validationService;
 
     private static final LocalTime DAY_START = LocalTime.of(9, 0);
 
@@ -43,6 +44,13 @@ public class ScheduleService {
 
     @Transactional
     public ScheduleResponse generateSchedule(UUID userId, UUID orgId, GenerateScheduleRequest request) {
+        validationService.requireNotNull(request.getFrom(), "from");
+        validationService.requireNotNull(request.getTo(), "to");
+        validationService.requireNotBefore(request.getTo(), request.getFrom(), "to");
+        if (request.getMaxDailyWorkMinutes() != null) {
+            validationService.requireRange(request.getMaxDailyWorkMinutes(), "maxDailyWorkMinutes", 30, 480);
+        }
+
         LocalDate from = request.getFrom();
         LocalDate to = request.getTo();
         int maxDailyWorkMinutes = request.getMaxDailyWorkMinutes() != null ? request.getMaxDailyWorkMinutes() : 240;

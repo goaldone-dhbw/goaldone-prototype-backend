@@ -33,6 +33,7 @@ public class OrganizationService {
     private final UserRepository userRepository;
     private final InvitationRepository invitationRepository;
     private final EmailService emailService;
+    private final ValidationService validationService;
 
     public OrganizationResponse getMyOrganization(UUID orgId) {
         Organization org = organizationRepository.findById(orgId)
@@ -94,6 +95,9 @@ public class OrganizationService {
 
     @Transactional
     public InvitationResponse createInvitation(UUID orgId, String email, UUID invitedByUserId) {
+        validationService.requireNotBlank(email, "email");
+        validationService.requireValidEmail(email);
+
         if (userRepository.existsByEmail(email)) {
             throw new ConflictException("User with this email is already a member");
         }

@@ -32,6 +32,7 @@ public class TaskService {
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
     private final OrganizationRepository organizationRepository;
+    private final ValidationService validationService;
 
     @Transactional(readOnly = true)
     public TaskPage listTasks(UUID ownerId, UUID orgId, de.goaldone.backend.model.TaskStatus status, LocalDate from, LocalDate to, Pageable pageable) {
@@ -53,6 +54,14 @@ public class TaskService {
 
     @Transactional
     public TaskResponse createTask(CreateTaskRequest request, UUID ownerId, UUID orgId) {
+        validationService.requireNotBlank(request.getTitle(), "title");
+        validationService.requireMaxLength(request.getTitle(), "title", 255);
+        validationService.requireNotNull(request.getCognitiveLoad(), "cognitiveLoad");
+        validationService.requirePositive(request.getEstimatedDurationMinutes(), "estimatedDurationMinutes");
+        if (request.getRecurrence() != null) {
+            validationService.requirePositive(request.getRecurrence().getInterval(), "recurrence.interval");
+        }
+
         User owner = userRepository.findById(ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         Organization customOrg = organizationRepository.findById(orgId)
@@ -98,6 +107,20 @@ public class TaskService {
 
     @Transactional
     public TaskResponse updateTask(UUID taskId, UpdateTaskRequest request, UUID ownerId) {
+        if (request.getTitle() != null) {
+            validationService.requireNotBlank(request.getTitle(), "title");
+            validationService.requireMaxLength(request.getTitle(), "title", 255);
+        }
+        if (request.getCognitiveLoad() != null) {
+            validationService.requireNotNull(request.getCognitiveLoad(), "cognitiveLoad");
+        }
+        if (request.getEstimatedDurationMinutes() != null) {
+            validationService.requirePositive(request.getEstimatedDurationMinutes(), "estimatedDurationMinutes");
+        }
+        if (request.getRecurrence() != null) {
+            validationService.requirePositive(request.getRecurrence().getInterval(), "recurrence.interval");
+        }
+
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
 
