@@ -4,6 +4,8 @@ import de.goaldone.backend.entity.Invitation;
 import de.goaldone.backend.entity.RefreshToken;
 import de.goaldone.backend.entity.User;
 import de.goaldone.backend.entity.enums.Role;
+import de.goaldone.backend.exception.GoneException;
+import de.goaldone.backend.exception.ResourceNotFoundException;
 import de.goaldone.backend.model.*;
 import de.goaldone.backend.repository.InvitationRepository;
 import de.goaldone.backend.repository.RefreshTokenRepository;
@@ -96,7 +98,7 @@ public class AuthService {
     public void changePassword(ChangePasswordRequest request) {
         String userIdStr = SecurityContextHolder.getContext().getAuthentication().getName();
         User user = userRepository.findById(UUID.fromString(userIdStr))
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
             throw new BadCredentialsException("Invalid current password");
@@ -112,10 +114,10 @@ public class AuthService {
     @Transactional
     public LoginResponse acceptInvitation(String token, AcceptInvitationRequest request) {
         Invitation invitation = invitationRepository.findByToken(token)
-                .orElseThrow(() -> new RuntimeException("Invitation not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Invitation not found"));
 
         if (invitation.getExpiresAt().isBefore(Instant.now())) {
-            throw new RuntimeException("Invitation expired");
+            throw new GoneException("Invitation expired");
         }
 
         User user = User.builder()

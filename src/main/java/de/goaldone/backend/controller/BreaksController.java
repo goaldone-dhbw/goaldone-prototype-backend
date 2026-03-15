@@ -15,7 +15,7 @@ import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
-public class BreaksController implements BreaksApi {
+public class BreaksController extends BaseController implements BreaksApi {
 
     private final BreakService breakService;
 
@@ -39,14 +39,6 @@ public class BreaksController implements BreaksApi {
     public ResponseEntity<Void> deleteBreak(UUID breakId) {
         breakService.deleteBreak(breakId, getCurrentUserId());
         return ResponseEntity.noContent().build();
-    }
-
-    private UUID getCurrentUserId() {
-        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        if (principal instanceof UUID) {
-            return (UUID) principal;
-        }
-        throw new RuntimeException("Current user not found in security context");
     }
 }
 

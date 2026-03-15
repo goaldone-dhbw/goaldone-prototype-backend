@@ -3,6 +3,7 @@ package de.goaldone.backend.service;
 import de.goaldone.backend.entity.Break;
 import de.goaldone.backend.entity.User;
 import de.goaldone.backend.entity.enums.RecurrenceType;
+import de.goaldone.backend.exception.ResourceNotFoundException;
 import de.goaldone.backend.model.BreakResponse;
 import de.goaldone.backend.model.CreateBreakRequest;
 import de.goaldone.backend.model.RecurrenceRule;
@@ -37,7 +38,7 @@ public class BreakService {
     @Transactional
     public BreakResponse createBreak(CreateBreakRequest request, UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         Break newBreak = Break.builder()
                 .label(request.getLabel())
@@ -56,7 +57,7 @@ public class BreakService {
     @Transactional
     public BreakResponse updateBreak(UUID breakId, CreateBreakRequest request, UUID userId) {
         Break existingBreak = breakRepository.findById(breakId)
-                .orElseThrow(() -> new RuntimeException("Break not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Break not found"));
 
         if (!existingBreak.getUser().getId().equals(userId)) {
             throw new AccessDeniedException("Access denied: You do not own this break");
@@ -76,7 +77,7 @@ public class BreakService {
     @Transactional
     public void deleteBreak(UUID breakId, UUID userId) {
         Break existingBreak = breakRepository.findById(breakId)
-                .orElseThrow(() -> new RuntimeException("Break not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Break not found"));
 
         if (!existingBreak.getUser().getId().equals(userId)) {
             throw new AccessDeniedException("Access denied: You do not own this break");

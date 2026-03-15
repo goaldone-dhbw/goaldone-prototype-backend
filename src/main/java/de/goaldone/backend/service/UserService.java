@@ -1,6 +1,7 @@
 package de.goaldone.backend.service;
 
 import de.goaldone.backend.entity.User;
+import de.goaldone.backend.exception.ResourceNotFoundException;
 import de.goaldone.backend.model.UpdateUserRequest;
 import de.goaldone.backend.model.UserResponse;
 import de.goaldone.backend.repository.UserRepository;
@@ -21,14 +22,14 @@ public class UserService {
 
     public UserResponse getMyProfile(UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         return mapToUserResponse(user);
     }
 
     @Transactional
     public UserResponse updateMyProfile(UUID userId, UpdateUserRequest request) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         user.setFirstName(request.getFirstName());
         user.setLastName(request.getLastName());

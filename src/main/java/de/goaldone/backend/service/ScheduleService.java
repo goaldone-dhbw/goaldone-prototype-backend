@@ -7,6 +7,7 @@ import de.goaldone.backend.entity.Task;
 import de.goaldone.backend.entity.User;
 import de.goaldone.backend.entity.enums.ScheduleEntryType;
 import de.goaldone.backend.entity.enums.TaskStatus;
+import de.goaldone.backend.exception.ResourceNotFoundException;
 import de.goaldone.backend.model.GenerateScheduleRequest;
 import de.goaldone.backend.model.ScheduleResponse;
 import de.goaldone.backend.repository.BreakRepository;
@@ -47,7 +48,12 @@ public class ScheduleService {
         int maxDailyWorkMinutes = request.getMaxDailyWorkMinutes() != null ? request.getMaxDailyWorkMinutes() : 240;
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        
+        if (user.getOrganization() == null || !user.getOrganization().getId().equals(orgId)) {
+            throw new org.springframework.security.access.AccessDeniedException("User organization mismatch");
+        }
+        
         Organization organization = user.getOrganization();
 
         // 1. Delete existing entries

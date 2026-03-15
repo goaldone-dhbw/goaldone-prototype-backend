@@ -15,7 +15,7 @@ import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
-public class ScheduleController implements ScheduleApi {
+public class ScheduleController extends BaseController implements ScheduleApi {
 
     private final ScheduleService scheduleService;
 
@@ -31,27 +31,5 @@ public class ScheduleController implements ScheduleApi {
                 getCurrentOrgId(),
                 generateScheduleRequest
         ));
-    }
-
-    private UUID getCurrentUserId() {
-        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        if (principal instanceof UUID) {
-            return (UUID) principal;
-        }
-        throw new RuntimeException("Current user not found in security context");
-    }
-
-    private UUID getCurrentOrgId() {
-        Object details = SecurityContextHolder.getContext().getAuthentication().getDetails();
-        if (details instanceof GoaldoneUserDetails) {
-            UUID orgId = ((GoaldoneUserDetails) details).getOrganizationId();
-            if (orgId == null) {
-                // SUPER_ADMIN might have null orgId, but tasks/schedules need an orgId in this context
-                // Requirement says "extract orgId from JWT, never from request".
-                throw new RuntimeException("Current user has no organization");
-            }
-            return orgId;
-        }
-        throw new RuntimeException("GoaldoneUserDetails not found in security context");
     }
 }

@@ -4,6 +4,8 @@ import de.goaldone.backend.entity.Invitation;
 import de.goaldone.backend.entity.Organization;
 import de.goaldone.backend.entity.User;
 import de.goaldone.backend.entity.enums.Role;
+import de.goaldone.backend.exception.ConflictException;
+import de.goaldone.backend.exception.ResourceNotFoundException;
 import de.goaldone.backend.model.*;
 import de.goaldone.backend.repository.InvitationRepository;
 import de.goaldone.backend.repository.OrganizationRepository;
@@ -44,7 +46,7 @@ public class AdminService {
     @Transactional
     public OrganizationResponse createOrganization(CreateOrganizationRequest request) {
         if (organizationRepository.existsByName(request.getName())) {
-            throw new RuntimeException("Organization with this name already exists");
+            throw new ConflictException("Organization with this name already exists");
         }
 
         Organization org = Organization.builder()
@@ -71,7 +73,7 @@ public class AdminService {
     @Transactional
     public void deleteOrganization(UUID orgId) {
         if (!organizationRepository.existsById(orgId)) {
-            throw new RuntimeException("Organization not found");
+            throw new ResourceNotFoundException("Organization not found");
         }
         organizationRepository.deleteById(orgId);
     }
@@ -79,7 +81,7 @@ public class AdminService {
     @Transactional
     public UserResponse addSuperAdmin(String email) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         user.setRole(Role.SUPER_ADMIN);
         userRepository.save(user);

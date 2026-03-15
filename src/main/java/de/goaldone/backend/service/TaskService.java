@@ -3,6 +3,8 @@ package de.goaldone.backend.service;
 import de.goaldone.backend.entity.Organization;
 import de.goaldone.backend.entity.Task;
 import de.goaldone.backend.entity.User;
+import de.goaldone.backend.exception.ConflictException;
+import de.goaldone.backend.exception.ResourceNotFoundException;
 import de.goaldone.backend.model.*;
 import de.goaldone.backend.repository.OrganizationRepository;
 import de.goaldone.backend.repository.TaskRepository;
@@ -52,13 +54,12 @@ public class TaskService {
     @Transactional
     public TaskResponse createTask(CreateTaskRequest request, UUID ownerId, UUID orgId) {
         User owner = userRepository.findById(ownerId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         Organization customOrg = organizationRepository.findById(orgId)
-                .orElseThrow(() -> new RuntimeException("Organization not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Organization not found"));
 
-        // Verify user belongs to org? Usually handled by context, but strictly speaking owner.getOrganization().getId() should be checked against orgId.
         if (!owner.getOrganization().getId().equals(orgId)) {
-             throw new RuntimeException("User organization mismatch");
+             throw new AccessDeniedException("User organization mismatch");
         }
 
         Task task = Task.builder()
@@ -86,7 +87,7 @@ public class TaskService {
     @Transactional(readOnly = true)
     public TaskResponse getTask(UUID taskId, UUID ownerId) {
         Task task = taskRepository.findById(taskId)
-                .orElseThrow(() -> new RuntimeException("Task not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
 
         if (!task.getOwner().getId().equals(ownerId)) {
             throw new AccessDeniedException("Access denied: You do not own this task");
@@ -98,7 +99,7 @@ public class TaskService {
     @Transactional
     public TaskResponse updateTask(UUID taskId, UpdateTaskRequest request, UUID ownerId) {
         Task task = taskRepository.findById(taskId)
-                .orElseThrow(() -> new RuntimeException("Task not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
 
         if (!task.getOwner().getId().equals(ownerId)) {
             throw new AccessDeniedException("Access denied: You do not own this task");
@@ -137,7 +138,7 @@ public class TaskService {
     @Transactional
     public void deleteTask(UUID taskId, UUID ownerId) {
         Task task = taskRepository.findById(taskId)
-                .orElseThrow(() -> new RuntimeException("Task not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
 
         if (!task.getOwner().getId().equals(ownerId)) {
             throw new AccessDeniedException("Access denied: You do not own this task");
@@ -149,16 +150,14 @@ public class TaskService {
     @Transactional
     public TaskResponse completeTask(UUID taskId, UUID ownerId) {
         Task task = taskRepository.findById(taskId)
-                .orElseThrow(() -> new RuntimeException("Task not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
 
         if (!task.getOwner().getId().equals(ownerId)) {
             throw new AccessDeniedException("Access denied: You do not own this task");
         }
         
         if (task.getStatus() == de.goaldone.backend.entity.enums.TaskStatus.DONE) {
-             // Potentially 409, but returning current state is also fine unless strictly required.
-             // Spec says 409 "Task is already done".
-             throw new RuntimeException("Task is already done"); // Map to 409 in handler later or let it 500
+             throw new ConflictException("Task is already done");
         }
 
         task.setStatus(de.goaldone.backend.entity.enums.TaskStatus.DONE);
@@ -171,15 +170,14 @@ public class TaskService {
     @Transactional
     public TaskResponse reopenTask(UUID taskId, UUID ownerId) {
         Task task = taskRepository.findById(taskId)
-                .orElseThrow(() -> new RuntimeException("Task not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
 
         if (!task.getOwner().getId().equals(ownerId)) {
             throw new AccessDeniedException("Access denied: You do not own this task");
         }
         
         if (task.getStatus() == de.goaldone.backend.entity.enums.TaskStatus.OPEN) {
-             // Spec says 409 "Task is already open"
-             throw new RuntimeException("Task is already open");
+             throw new ConflictException("Task is already open");
         }
 
         task.setStatus(de.goaldone.backend.entity.enums.TaskStatus.OPEN);

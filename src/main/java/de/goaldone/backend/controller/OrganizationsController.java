@@ -17,7 +17,7 @@ import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
-public class OrganizationsController implements OrganizationsApi {
+public class OrganizationsController extends BaseController implements OrganizationsApi {
 
     private final OrganizationService organizationService;
 
@@ -70,21 +70,5 @@ public class OrganizationsController implements OrganizationsApi {
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<OrganizationResponse> updateOrganizationSettings(UpdateOrganizationSettingsRequest updateOrganizationSettingsRequest) {
         return ResponseEntity.ok(organizationService.updateSettings(getCurrentOrgId(), updateOrganizationSettingsRequest));
-    }
-
-    private UUID getCurrentUserId() {
-        return (UUID) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-    }
-
-    private UUID getCurrentOrgId() {
-        Object details = SecurityContextHolder.getContext().getAuthentication().getDetails();
-        if (details instanceof GoaldoneUserDetails) {
-            UUID orgId = ((GoaldoneUserDetails) details).getOrganizationId();
-            if (orgId == null) {
-                throw new RuntimeException("Current user has no organization");
-            }
-            return orgId;
-        }
-        throw new RuntimeException("GoaldoneUserDetails not found in security context");
     }
 }

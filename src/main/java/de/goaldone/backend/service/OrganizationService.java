@@ -4,6 +4,8 @@ import de.goaldone.backend.entity.Invitation;
 import de.goaldone.backend.entity.Organization;
 import de.goaldone.backend.entity.User;
 import de.goaldone.backend.entity.enums.Role;
+import de.goaldone.backend.exception.ConflictException;
+import de.goaldone.backend.exception.ResourceNotFoundException;
 import de.goaldone.backend.model.*;
 import de.goaldone.backend.repository.InvitationRepository;
 import de.goaldone.backend.repository.OrganizationRepository;
@@ -13,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.openapitools.jackson.nullable.JsonNullable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,14 +35,14 @@ public class OrganizationService {
 
     public OrganizationResponse getMyOrganization(UUID orgId) {
         Organization org = organizationRepository.findById(orgId)
-                .orElseThrow(() -> new RuntimeException("Organization not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Organization not found"));
         return mapToOrganizationResponse(org);
     }
 
     @Transactional
     public OrganizationResponse updateSettings(UUID orgId, UpdateOrganizationSettingsRequest request) {
         Organization org = organizationRepository.findById(orgId)
-                .orElseThrow(() -> new RuntimeException("Organization not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Organization not found"));
 
         org.setName(request.getName());
         if (request.getAllowedDomain() != null) {
@@ -64,10 +67,10 @@ public class OrganizationService {
     @Transactional
     public void removeMember(UUID orgId, UUID userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
 
         if (!user.getOrganization().getId().equals(orgId)) {
-            throw new RuntimeException("User does not belong to this organization");
+            throw new AccessDeniedException("Member does not belong to your organization");
         }
 
         userRepository.delete(user);
@@ -76,10 +79,10 @@ public class OrganizationService {
     @Transactional
     public MemberResponse updateMemberRole(UUID orgId, UUID userId, Role role) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
 
         if (!user.getOrganization().getId().equals(orgId)) {
-            throw new RuntimeException("User does not belong to this organization");
+            throw new AccessDeniedException("Member does not belong to your organization");
         }
 
         user.setRole(role);
@@ -91,16 +94,16 @@ public class OrganizationService {
     @Transactional
     public InvitationResponse createInvitation(UUID orgId, String email, UUID invitedByUserId) {
         if (userRepository.existsByEmail(email)) {
-            throw new RuntimeException("User with this email is already a member");
+            throw new ConflictException("User with this email is already a member");
         }
         if (invitationRepository.existsByEmailAndOrganizationId(email, orgId)) {
-            throw new RuntimeException("An open invitation already exists for this email");
+            throw new ConflictException("An open invitation already exists for this email");
         }
 
         Organization org = organizationRepository.findById(orgId)
-                .orElseThrow(() -> new RuntimeException("Organization not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Organization not found"));
         User invitedBy = userRepository.findById(invitedByUserId)
-                .orElseThrow(() -> new RuntimeException("Inviting user not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Inviting user not found"));
 
         Invitation invitation = Invitation.builder()
                 .email(email)
@@ -132,10 +135,10 @@ public class OrganizationService {
     @Transactional
     public void revokeInvitation(UUID orgId, UUID invitationId) {
         Invitation invitation = invitationRepository.findById(invitationId)
-                .orElseThrow(() -> new RuntimeException("Invitation not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Invitation not found"));
 
         if (!invitation.getOrganization().getId().equals(orgId)) {
-            throw new RuntimeException("Invitation does not belong to this organization");
+            throw new AccessDeniedException("Invitation does not belong to your organization");
         }
 
         invitationRepository.delete(invitation);

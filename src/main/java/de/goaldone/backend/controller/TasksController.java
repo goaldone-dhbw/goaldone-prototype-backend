@@ -16,7 +16,7 @@ import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
-public class TasksController implements TasksApi {
+public class TasksController extends BaseController implements TasksApi {
 
     private final TaskService taskService;
 
@@ -62,26 +62,6 @@ public class TasksController implements TasksApi {
     @Override
     public ResponseEntity<TaskResponse> reopenTask(UUID taskId) {
         return ResponseEntity.ok(taskService.reopenTask(taskId, getCurrentUserId()));
-    }
-
-    private UUID getCurrentUserId() {
-        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        if (principal instanceof UUID) {
-            return (UUID) principal;
-        }
-        throw new RuntimeException("Current user not found in security context");
-    }
-
-    private UUID getCurrentOrgId() {
-        Object details = SecurityContextHolder.getContext().getAuthentication().getDetails();
-        if (details instanceof GoaldoneUserDetails) {
-            UUID orgId = ((GoaldoneUserDetails) details).getOrganizationId();
-            if (orgId == null) {
-                throw new RuntimeException("Current user has no organization");
-            }
-            return orgId;
-        }
-        throw new RuntimeException("GoaldoneUserDetails not found in security context");
     }
 }
 
