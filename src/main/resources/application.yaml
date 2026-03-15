@@ -17,3 +17,6 @@ app:
     secret: ${JWT_SECRET:dev-secret-key-replace-in-production-min-256-bits-extra-long-for-security}
     access-token-expiry: 900      # 15 minutes in seconds
     refresh-token-expiry: 604800  # 7 days in seconds
+  mail:
+    from: noreply@goaldone.de
+    invitation-link-base: ${APP_BASE_URL:http://localhost:4200}/auth/accept-invitation

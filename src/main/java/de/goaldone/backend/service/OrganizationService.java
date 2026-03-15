@@ -32,6 +32,7 @@ public class OrganizationService {
     private final OrganizationRepository organizationRepository;
     private final UserRepository userRepository;
     private final InvitationRepository invitationRepository;
+    private final EmailService emailService;
 
     public OrganizationResponse getMyOrganization(UUID orgId) {
         Organization org = organizationRepository.findById(orgId)
@@ -110,13 +111,19 @@ public class OrganizationService {
                 .organization(org)
                 .invitedBy(invitedBy)
                 .token(UUID.randomUUID().toString())
+                .role(Role.USER)
                 .expiresAt(Instant.now().plusSeconds(48 * 3600)) // 48 hours
                 .build();
 
         invitationRepository.save(invitation);
 
         log.info("Invitation created for {} in organization {}. Token: {}", email, org.getName(), invitation.getToken());
-        // TODO: Send email
+
+        try {
+            emailService.sendInvitationEmail(invitation.getEmail(), invitation.getToken(), org.getName());
+        } catch (Exception e) {
+            log.error("Failed to send invitation email to {}: {}", email, e.getMessage());
+        }
 
         return mapToInvitationResponse(invitation);
     }

@@ -31,6 +31,7 @@ public class AdminService {
     private final OrganizationRepository organizationRepository;
     private final UserRepository userRepository;
     private final InvitationRepository invitationRepository;
+    private final EmailService emailService;
 
     public OrganizationPage listOrganizations(Pageable pageable) {
         Page<Organization> orgs = organizationRepository.findAll(pageable);
@@ -60,12 +61,18 @@ public class AdminService {
                 .email(request.getAdminEmail())
                 .organization(org)
                 .token(UUID.randomUUID().toString())
+                .role(Role.ADMIN)
                 .expiresAt(Instant.now().plusSeconds(48 * 3600)) // 48 hours
                 .build();
         invitationRepository.save(invitation);
 
         log.info("Organization created: {}. Admin invitation token: {}", org.getName(), invitation.getToken());
-        // TODO: Send email
+
+        try {
+            emailService.sendInvitationEmail(invitation.getEmail(), invitation.getToken(), org.getName());
+        } catch (Exception e) {
+            log.error("Failed to send initial admin invitation email to {}: {}", request.getAdminEmail(), e.getMessage());
+        }
 
         return mapToOrganizationResponse(org);
     }

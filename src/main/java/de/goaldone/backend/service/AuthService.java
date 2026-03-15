@@ -3,7 +3,6 @@ package de.goaldone.backend.service;
 import de.goaldone.backend.entity.Invitation;
 import de.goaldone.backend.entity.RefreshToken;
 import de.goaldone.backend.entity.User;
-import de.goaldone.backend.entity.enums.Role;
 import de.goaldone.backend.exception.GoneException;
 import de.goaldone.backend.exception.ResourceNotFoundException;
 import de.goaldone.backend.model.*;
@@ -125,7 +124,7 @@ public class AuthService {
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .role(Role.USER) // Standard user role for accepted invitations
+                .role(invitation.getRole())
                 .organization(invitation.getOrganization())
                 .build();
 
