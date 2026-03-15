@@ -1,6 +1,8 @@
 spring:
   application:
     name: goaldone-backend
+  config:
+    import: "optional:file:./super-admins.yml"
   jpa:
     open-in-view: false
     hibernate:
