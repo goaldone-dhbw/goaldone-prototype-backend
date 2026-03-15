@@ -24,7 +24,7 @@ public class SuperAdminLoader implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         if (superAdminProperties.getSuperAdmins() == null || superAdminProperties.getSuperAdmins().isEmpty()) {
-            log.info("No super admins configured in super-admins.yml, skipping loader.");
+            log.warn("No super admins configured in super-admins.yml — the platform will have no super admin account");
             return;
         }
 
