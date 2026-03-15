@@ -1,0 +1,74 @@
+package de.goaldone.backend.security;
+
+import de.goaldone.backend.entity.enums.Role;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+import java.util.UUID;
+
+@Component
+@RequiredArgsConstructor
+@Slf4j
+public class JwtAuthFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+
+        final String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        final String jwt = authHeader.substring(7);
+
+        try {
+            Claims claims = jwtService.validateToken(jwt);
+            UUID userId = UUID.fromString(claims.getSubject());
+            String orgIdStr = claims.get("organizationId", String.class);
+            UUID organizationId = orgIdStr != null ? UUID.fromString(orgIdStr) : null;
+            Role role = Role.valueOf(claims.get("role", String.class));
+
+            GoaldoneUserDetails userDetails = GoaldoneUserDetails.builder()
+                    .userId(userId)
+                    .organizationId(organizationId)
+                    .role(role)
+                    // email and password not strictly needed for auth filter if not using UserDetailsService later
+                    .build();
+
+            UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                    userId, // userId as principal as requested
+                    null,
+                    userDetails.getAuthorities()
+            );
+
+            authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+            // We can also attach userDetails as details if we want both
+            // authToken.setDetails(userDetails);
+
+            SecurityContextHolder.getContext().setAuthentication(authToken);
+
+        } catch (JwtException | IllegalArgumentException e) {
+            log.debug("JWT validation failed: {}", e.getMessage());
+        }
+
+        filterChain.doFilter(request, response);
+    }
+}
