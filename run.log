@@ -112,22 +112,22 @@
 [INFO] 
 [INFO] --- compiler:3.13.0:compile (default-compile) @ goaldone_prototype_backend ---
 [INFO] Recompiling the module because of changed source code.
-[INFO] Compiling 75 source files with javac [debug parameters release 21] to target/classes
-[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/UpdateOrganizationSettingsRequest.java:[34,32] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
-[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/OrganizationResponse.java:[41,32] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
-[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/TaskResponse.java:[44,32] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
-[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/TaskResponse.java:[53,35] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
-[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/TaskResponse.java:[57,30] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
-[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/TaskResponse.java:[64,40] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
-[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/UpdateTaskRequest.java:[39,50] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
-[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/UpdateTaskRequest.java:[46,35] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
+[INFO] Compiling 80 source files with javac [debug parameters release 21] to target/classes
 [WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/UserResponse.java:[47,30] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
-[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/CreateTaskRequest.java:[39,50] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
-[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/CreateTaskRequest.java:[46,35] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
 [WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/ScheduleEntry.java:[81,30] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
 [WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/ScheduleEntry.java:[83,32] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
 [WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/ScheduleEntry.java:[85,30] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
 [WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/ScheduleEntry.java:[87,32] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
+[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/UpdateOrganizationSettingsRequest.java:[34,32] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
+[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/TaskResponse.java:[44,32] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
+[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/TaskResponse.java:[53,35] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
+[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/TaskResponse.java:[57,30] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
+[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/TaskResponse.java:[64,40] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
+[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/OrganizationResponse.java:[41,32] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
+[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/UpdateTaskRequest.java:[39,50] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
+[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/UpdateTaskRequest.java:[46,35] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
+[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/CreateTaskRequest.java:[39,50] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
+[WARNING] /Users/johannes/IdeaProjects/goaldone_prototype_backend/target/generated-sources/openapi/src/main/java/de/goaldone/backend/model/CreateTaskRequest.java:[46,35] @Builder will ignore the initializing expression entirely. If you want the initializing expression to serve as default, add @Builder.Default. If it is not supposed to be settable during building, make the field final.
 [INFO] 
 [INFO] --- resources:3.3.1:testResources (default-testResources) @ goaldone_prototype_backend ---
 [INFO] skip non existing resourceDirectory /Users/johannes/IdeaProjects/goaldone_prototype_backend/src/test/resources
@@ -151,71 +151,71 @@
 
  :: Spring Boot ::                (v3.4.3)
 
-2026-03-15T19:17:50.255+01:00  INFO 54035 --- [goaldone-backend] [           main] .g.b.GoaldonePrototypeBackendApplication : Starting GoaldonePrototypeBackendApplication using Java 21.0.10 with PID 54035 (/Users/johannes/IdeaProjects/goaldone_prototype_backend/target/classes started by johannes in /Users/johannes/IdeaProjects/goaldone_prototype_backend)
-2026-03-15T19:17:50.256+01:00  INFO 54035 --- [goaldone-backend] [           main] .g.b.GoaldonePrototypeBackendApplication : The following 1 profile is active: "dev"
-2026-03-15T19:17:50.525+01:00  INFO 54035 --- [goaldone-backend] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
-2026-03-15T19:17:50.552+01:00  INFO 54035 --- [goaldone-backend] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 22 ms. Found 7 JPA repository interfaces.
-2026-03-15T19:17:50.743+01:00  INFO 54035 --- [goaldone-backend] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
-2026-03-15T19:17:50.749+01:00  INFO 54035 --- [goaldone-backend] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
-2026-03-15T19:17:50.749+01:00  INFO 54035 --- [goaldone-backend] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.36]
-2026-03-15T19:17:50.766+01:00  INFO 54035 --- [goaldone-backend] [           main] o.a.c.c.C.[.[localhost].[/api/v1]        : Initializing Spring embedded WebApplicationContext
-2026-03-15T19:17:50.766+01:00  INFO 54035 --- [goaldone-backend] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 498 ms
-2026-03-15T19:17:50.822+01:00  INFO 54035 --- [goaldone-backend] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
-2026-03-15T19:17:50.883+01:00  INFO 54035 --- [goaldone-backend] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection conn0: url=jdbc:h2:mem:goaldone user=SA
-2026-03-15T19:17:50.883+01:00  INFO 54035 --- [goaldone-backend] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
-2026-03-15T19:17:50.904+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.database                       : Set default schema name to PUBLIC
-2026-03-15T19:17:50.982+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0001-create-organizations.sql
-2026-03-15T19:17:50.986+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0002-create-users.sql
-2026-03-15T19:17:50.987+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0003-create-invitations.sql
-2026-03-15T19:17:50.988+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0004-create-tasks.sql
-2026-03-15T19:17:50.989+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0005-create-breaks.sql
-2026-03-15T19:17:50.990+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0006-create-schedule-entries.sql
-2026-03-15T19:17:50.991+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0007-seed-dev-user.sql
-2026-03-15T19:17:51.005+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Creating database history table with name: PUBLIC.DATABASECHANGELOG
-2026-03-15T19:17:51.036+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading from PUBLIC.DATABASECHANGELOG
-2026-03-15T19:17:51.050+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.lockservice                    : Changelog-Protokoll erfolgreich gesperrt.
-2026-03-15T19:17:51.050+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.command                        : Using deploymentId: 3598671050
-2026-03-15T19:17:51.051+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading from PUBLIC.DATABASECHANGELOG
-2026-03-15T19:17:51.055+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0001-create-organizations.sql::0001-create-organizations::goaldone
-2026-03-15T19:17:51.060+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
-2026-03-15T19:17:51.061+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0001-create-organizations.sql::0001-create-organizations::goaldone ran successfully in 6ms
-2026-03-15T19:17:51.063+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0002-create-users.sql::0002-create-users::goaldone
-2026-03-15T19:17:51.067+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
-2026-03-15T19:17:51.068+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0002-create-users.sql::0002-create-users::goaldone ran successfully in 4ms
-2026-03-15T19:17:51.068+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0002-create-users.sql::0002-create-refresh-tokens::goaldone
-2026-03-15T19:17:51.071+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
-2026-03-15T19:17:51.072+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0002-create-users.sql::0002-create-refresh-tokens::goaldone ran successfully in 4ms
-2026-03-15T19:17:51.072+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0003-create-invitations.sql::0003-create-invitations::goaldone
-2026-03-15T19:17:51.076+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
-2026-03-15T19:17:51.076+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0003-create-invitations.sql::0003-create-invitations::goaldone ran successfully in 4ms
-2026-03-15T19:17:51.076+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0004-create-tasks.sql::0004-create-tasks::goaldone
-2026-03-15T19:17:51.082+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
-2026-03-15T19:17:51.082+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0004-create-tasks.sql::0004-create-tasks::goaldone ran successfully in 6ms
-2026-03-15T19:17:51.083+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0005-create-breaks.sql::0005-create-breaks::goaldone
-2026-03-15T19:17:51.085+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
-2026-03-15T19:17:51.085+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0005-create-breaks.sql::0005-create-breaks::goaldone ran successfully in 2ms
-2026-03-15T19:17:51.085+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0006-create-schedule-entries.sql::0006-create-schedule-entries::goaldone
-2026-03-15T19:17:51.090+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
-2026-03-15T19:17:51.090+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0006-create-schedule-entries.sql::0006-create-schedule-entries::goaldone ran successfully in 5ms
-2026-03-15T19:17:51.091+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0007-seed-dev-user.sql::0007-seed-dev-user::goaldone
-2026-03-15T19:17:51.091+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
-2026-03-15T19:17:51.092+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0007-seed-dev-user.sql::0007-seed-dev-user::goaldone ran successfully in 1ms
-2026-03-15T19:17:51.094+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.util                           : UPDATE SUMMARY
-2026-03-15T19:17:51.094+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.util                           : Run:                          8
-2026-03-15T19:17:51.094+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.util                           : Previously run:               0
-2026-03-15T19:17:51.094+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.util                           : Filtered out:                 0
-2026-03-15T19:17:51.094+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.util                           : -------------------------------
-2026-03-15T19:17:51.094+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.util                           : Total change sets:            8
-2026-03-15T19:17:51.094+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.util                           : Update summary generated
-2026-03-15T19:17:51.095+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.command                        : Update command completed successfully.
-2026-03-15T19:17:51.095+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.ui                             : Liquibase: Update has been successful. Rows affected: 10
-2026-03-15T19:17:51.095+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.lockservice                    : Successfully released change log lock
-2026-03-15T19:17:51.096+01:00  INFO 54035 --- [goaldone-backend] [           main] liquibase.command                        : Command execution complete
-2026-03-15T19:17:51.122+01:00  INFO 54035 --- [goaldone-backend] [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
-2026-03-15T19:17:51.138+01:00  INFO 54035 --- [goaldone-backend] [           main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.6.8.Final
-2026-03-15T19:17:51.147+01:00  INFO 54035 --- [goaldone-backend] [           main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
-2026-03-15T19:17:51.222+01:00  INFO 54035 --- [goaldone-backend] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
-2026-03-15T19:17:51.244+01:00  INFO 54035 --- [goaldone-backend] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+2026-03-15T20:17:41.388+01:00  INFO 62595 --- [goaldone-backend] [           main] .g.b.GoaldonePrototypeBackendApplication : Starting GoaldonePrototypeBackendApplication using Java 21.0.10 with PID 62595 (/Users/johannes/IdeaProjects/goaldone_prototype_backend/target/classes started by johannes in /Users/johannes/IdeaProjects/goaldone_prototype_backend)
+2026-03-15T20:17:41.389+01:00  INFO 62595 --- [goaldone-backend] [           main] .g.b.GoaldonePrototypeBackendApplication : The following 1 profile is active: "dev"
+2026-03-15T20:17:41.702+01:00  INFO 62595 --- [goaldone-backend] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-03-15T20:17:41.728+01:00  INFO 62595 --- [goaldone-backend] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 22 ms. Found 7 JPA repository interfaces.
+2026-03-15T20:17:41.919+01:00  INFO 62595 --- [goaldone-backend] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port 8080 (http)
+2026-03-15T20:17:41.925+01:00  INFO 62595 --- [goaldone-backend] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-03-15T20:17:41.925+01:00  INFO 62595 --- [goaldone-backend] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/10.1.36]
+2026-03-15T20:17:41.943+01:00  INFO 62595 --- [goaldone-backend] [           main] o.a.c.c.C.[.[localhost].[/api/v1]        : Initializing Spring embedded WebApplicationContext
+2026-03-15T20:17:41.943+01:00  INFO 62595 --- [goaldone-backend] [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 542 ms
+2026-03-15T20:17:42.009+01:00  INFO 62595 --- [goaldone-backend] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-03-15T20:17:42.080+01:00  INFO 62595 --- [goaldone-backend] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection conn0: url=jdbc:h2:mem:goaldone user=SA
+2026-03-15T20:17:42.081+01:00  INFO 62595 --- [goaldone-backend] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-03-15T20:17:42.104+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.database                       : Set default schema name to PUBLIC
+2026-03-15T20:17:42.195+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0001-create-organizations.sql
+2026-03-15T20:17:42.199+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0002-create-users.sql
+2026-03-15T20:17:42.201+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0003-create-invitations.sql
+2026-03-15T20:17:42.202+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0004-create-tasks.sql
+2026-03-15T20:17:42.203+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0005-create-breaks.sql
+2026-03-15T20:17:42.203+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0006-create-schedule-entries.sql
+2026-03-15T20:17:42.204+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading resource: db/changelog/changes/0007-seed-dev-user.sql
+2026-03-15T20:17:42.217+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Creating database history table with name: PUBLIC.DATABASECHANGELOG
+2026-03-15T20:17:42.250+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading from PUBLIC.DATABASECHANGELOG
+2026-03-15T20:17:42.267+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.lockservice                    : Changelog-Protokoll erfolgreich gesperrt.
+2026-03-15T20:17:42.267+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.command                        : Using deploymentId: 3602262267
+2026-03-15T20:17:42.268+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Reading from PUBLIC.DATABASECHANGELOG
+2026-03-15T20:17:42.273+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0001-create-organizations.sql::0001-create-organizations::goaldone
+2026-03-15T20:17:42.279+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
+2026-03-15T20:17:42.279+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0001-create-organizations.sql::0001-create-organizations::goaldone ran successfully in 6ms
+2026-03-15T20:17:42.281+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0002-create-users.sql::0002-create-users::goaldone
+2026-03-15T20:17:42.286+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
+2026-03-15T20:17:42.287+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0002-create-users.sql::0002-create-users::goaldone ran successfully in 5ms
+2026-03-15T20:17:42.288+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0002-create-users.sql::0002-create-refresh-tokens::goaldone
+2026-03-15T20:17:42.292+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
+2026-03-15T20:17:42.292+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0002-create-users.sql::0002-create-refresh-tokens::goaldone ran successfully in 4ms
+2026-03-15T20:17:42.293+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0003-create-invitations.sql::0003-create-invitations::goaldone
+2026-03-15T20:17:42.299+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
+2026-03-15T20:17:42.299+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0003-create-invitations.sql::0003-create-invitations::goaldone ran successfully in 6ms
+2026-03-15T20:17:42.300+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0004-create-tasks.sql::0004-create-tasks::goaldone
+2026-03-15T20:17:42.305+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
+2026-03-15T20:17:42.305+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0004-create-tasks.sql::0004-create-tasks::goaldone ran successfully in 5ms
+2026-03-15T20:17:42.306+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0005-create-breaks.sql::0005-create-breaks::goaldone
+2026-03-15T20:17:42.308+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
+2026-03-15T20:17:42.308+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0005-create-breaks.sql::0005-create-breaks::goaldone ran successfully in 2ms
+2026-03-15T20:17:42.309+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0006-create-schedule-entries.sql::0006-create-schedule-entries::goaldone
+2026-03-15T20:17:42.313+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
+2026-03-15T20:17:42.314+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0006-create-schedule-entries.sql::0006-create-schedule-entries::goaldone ran successfully in 5ms
+2026-03-15T20:17:42.314+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.ui                             : Running Changeset: db/changelog/changes/0007-seed-dev-user.sql::0007-seed-dev-user::goaldone
+2026-03-15T20:17:42.315+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : Custom SQL executed
+2026-03-15T20:17:42.315+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.changelog                      : ChangeSet db/changelog/changes/0007-seed-dev-user.sql::0007-seed-dev-user::goaldone ran successfully in 1ms
+2026-03-15T20:17:42.318+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.util                           : UPDATE SUMMARY
+2026-03-15T20:17:42.318+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.util                           : Run:                          8
+2026-03-15T20:17:42.318+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.util                           : Previously run:               0
+2026-03-15T20:17:42.318+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.util                           : Filtered out:                 0
+2026-03-15T20:17:42.318+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.util                           : -------------------------------
+2026-03-15T20:17:42.318+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.util                           : Total change sets:            8
+2026-03-15T20:17:42.318+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.util                           : Update summary generated
+2026-03-15T20:17:42.319+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.command                        : Update command completed successfully.
+2026-03-15T20:17:42.319+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.ui                             : Liquibase: Update has been successful. Rows affected: 10
+2026-03-15T20:17:42.320+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.lockservice                    : Successfully released change log lock
+2026-03-15T20:17:42.320+01:00  INFO 62595 --- [goaldone-backend] [           main] liquibase.command                        : Command execution complete
+2026-03-15T20:17:42.356+01:00  INFO 62595 --- [goaldone-backend] [           main] o.hibernate.jpa.internal.util.LogHelper  : HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-03-15T20:17:42.379+01:00  INFO 62595 --- [goaldone-backend] [           main] org.hibernate.Version                    : HHH000412: Hibernate ORM core version 6.6.8.Final
+2026-03-15T20:17:42.391+01:00  INFO 62595 --- [goaldone-backend] [           main] o.h.c.internal.RegionFactoryInitiator    : HHH000026: Second-level cache disabled
+2026-03-15T20:17:42.473+01:00  INFO 62595 --- [goaldone-backend] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-03-15T20:17:42.502+01:00  INFO 62595 --- [goaldone-backend] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
 	Database JDBC URL [Connecting through datasource 'HikariDataSource (HikariPool-1)']
 	Database driver: undefined/unknown
 	Database version: 2.3.232
@@ -223,18 +223,22 @@
 	Isolation level: undefined/unknown
 	Minimum pool size: undefined/unknown
 	Maximum pool size: undefined/unknown
-2026-03-15T19:17:51.545+01:00  INFO 54035 --- [goaldone-backend] [           main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
-2026-03-15T19:17:51.554+01:00  INFO 54035 --- [goaldone-backend] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
-2026-03-15T19:17:52.003+01:00  INFO 54035 --- [goaldone-backend] [           main] o.s.b.a.h2.H2ConsoleAutoConfiguration    : H2 console available at '/h2-console'. Database available at 'jdbc:h2:mem:goaldone'
-2026-03-15T19:17:52.036+01:00  INFO 54035 --- [goaldone-backend] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8080 (http) with context path '/api/v1'
-2026-03-15T19:17:52.040+01:00  INFO 54035 --- [goaldone-backend] [           main] .g.b.GoaldonePrototypeBackendApplication : Started GoaldonePrototypeBackendApplication in 1.92 seconds (process running for 2.03)
-2026-03-15T19:17:57.173+01:00  INFO 54035 --- [goaldone-backend] [nio-8080-exec-1] o.a.c.c.C.[.[localhost].[/api/v1]        : Initializing Spring DispatcherServlet 'dispatcherServlet'
-2026-03-15T19:17:57.173+01:00  INFO 54035 --- [goaldone-backend] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
-2026-03-15T19:17:57.174+01:00  INFO 54035 --- [goaldone-backend] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 1 ms
-Hibernate: select u1_0.id,u1_0.created_at,u1_0.email,u1_0.first_name,u1_0.last_name,u1_0.organization_id,u1_0.password_hash,u1_0.role from users u1_0 where u1_0.email=?
-Hibernate: insert into refresh_tokens (created_at,expires_at,revoked_at,token_hash,user_id,id) values (?,?,?,?,?,?)
-2026-03-15T19:18:02.363+01:00  INFO 54035 --- [goaldone-backend] [nio-8080-exec-4] d.g.backend.security.JwtAuthFilter       : Validated JWT for user: 00000000-0000-0000-0000-000000000002, org: 00000000-0000-0000-0000-000000000001, role: USER
-- [goaldone-backend] [tomcat-shutdown] o.s.b.w.e.tomcat.GracefulShutdown        : Graceful shutdown complete
-2026-03-15T19:17:48.589+01:00  INFO 53828 --- [goaldone-backend] [ionShutdownHook] j.LocalContainerEntityManagerFactoryBean : Closing JPA EntityManagerFactory for persistence unit 'default'
-2026-03-15T19:17:48.591+01:00  INFO 53828 --- [goaldone-backend] [ionShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown initiated...
-2026-03-15T19:17:48.592+01:00  INFO 53828 --- [goaldone-backend] [ionShutdownHook] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Shutdown completed.
+2026-03-15T20:17:42.831+01:00  INFO 62595 --- [goaldone-backend] [           main] o.h.e.t.j.p.i.JtaPlatformInitiator       : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-03-15T20:17:42.841+01:00  INFO 62595 --- [goaldone-backend] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-03-15T20:17:43.008+01:00  INFO 62595 --- [goaldone-backend] [           main] o.s.d.j.r.query.QueryEnhancerFactory     : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-03-15T20:17:43.537+01:00  INFO 62595 --- [goaldone-backend] [           main] o.s.b.a.h2.H2ConsoleAutoConfiguration    : H2 console available at '/h2-console'. Database available at 'jdbc:h2:mem:goaldone'
+2026-03-15T20:17:43.574+01:00  INFO 62595 --- [goaldone-backend] [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port 8080 (http) with context path '/api/v1'
+2026-03-15T20:17:43.578+01:00  INFO 62595 --- [goaldone-backend] [           main] .g.b.GoaldonePrototypeBackendApplication : Started GoaldonePrototypeBackendApplication in 2.362 seconds (process running for 2.484)
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  03:15 min
+[INFO] Finished at: 2026-03-15T20:20:54+01:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.springframework.boot:spring-boot-maven-plugin:3.4.3:run (default-cli) on project goaldone_prototype_backend: Process terminated with exit code: 137 -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException

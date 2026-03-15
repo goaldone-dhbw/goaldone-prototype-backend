@@ -10,5 +10,8 @@ VALUES ('00000000-0000-0000-0000-000000000001', 'Test Organization', 'admin@test
 INSERT INTO users (id, email, first_name, last_name, password_hash, role, organization_id)
 VALUES ('00000000-0000-0000-0000-000000000002', 'test@test.de', 'Test', 'User', '$2a$10$YCsOjUbspCubi3FolPCuOOEBJV0/ced.uwHXtnZudFYDQkzCJ.W9.', 'USER', '00000000-0000-0000-0000-000000000001');
 
--- rollback DELETE FROM users WHERE id = '00000000-0000-0000-0000-000000000002';
+INSERT INTO users (id, email, first_name, last_name, password_hash, role, organization_id)
+VALUES ('00000000-0000-0000-0000-000000000003', 'attacker@test.de', 'Attacker', 'User', '$2a$10$YCsOjUbspCubi3FolPCuOOEBJV0/ced.uwHXtnZudFYDQkzCJ.W9.', 'USER', '00000000-0000-0000-0000-000000000001');
+
+-- rollback DELETE FROM users WHERE id IN ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003');
 -- rollback DELETE FROM organizations WHERE id = '00000000-0000-0000-0000-000000000001';
