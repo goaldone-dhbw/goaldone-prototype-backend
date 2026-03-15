@@ -13,6 +13,7 @@ server:
     context-path: /api/v1
 
 app:
+  frontend-url: ${FRONTEND_URL:http://localhost:4200}
   jwt:
     secret: ${JWT_SECRET:dev-secret-key-replace-in-production-min-256-bits-extra-long-for-security}
     access-token-expiry: 900      # 15 minutes in seconds
@@ -24,8 +25,9 @@ app:
     allow-credentials: true
     max-age: 3600
   mail:
-    from: noreply@goaldone.de
-    invitation-link-base: ${APP_BASE_URL:http://localhost:4200}/auth/accept-invitation
+    from: ${EMAIL_FROM:noreply@goaldone.de}
+    invitation-path: /auth/accept-invitation
+    password-reset-path: /auth/reset-password
   scheduler:
     cleanup-cron: "0 0 2 * * *"
     invitation-cleanup-cron: "0 15 2 * * *"

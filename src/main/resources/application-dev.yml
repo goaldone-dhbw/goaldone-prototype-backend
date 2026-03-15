@@ -28,5 +28,6 @@ spring:
       mail.smtp.starttls.required: false
 
 app:
+  frontend-url: http://localhost:4200
   cors:
     allowed-origins: "*"

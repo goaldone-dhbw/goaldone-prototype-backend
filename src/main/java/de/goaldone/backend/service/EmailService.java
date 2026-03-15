@@ -1,8 +1,8 @@
 package de.goaldone.backend.service;
 
+import de.goaldone.backend.config.AppProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
@@ -13,18 +13,15 @@ import org.springframework.stereotype.Service;
 public class EmailService {
 
     private final JavaMailSender mailSender;
-
-    @Value("${app.mail.from}")
-    private String fromEmail;
-
-    @Value("${app.mail.invitation-link-base}")
-    private String invitationLinkBase;
+    private final AppProperties appProperties;
 
     public void sendInvitationEmail(String toEmail, String token, String organizationName) {
-        String invitationUrl = invitationLinkBase + "/" + token;
+        String invitationUrl = appProperties.getFrontendUrl() +
+                appProperties.getMail().getInvitationPath() +
+                "?token=" + token;
 
         SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(fromEmail);
+        message.setFrom(appProperties.getMail().getFrom());
         message.setTo(toEmail);
         message.setSubject("You have been invited to join " + organizationName + " on Goaldone");
         message.setText("You have been invited to join " + organizationName + ".\n" +
@@ -37,7 +34,11 @@ public class EmailService {
     }
 
     public void sendPasswordResetEmail(String toEmail, String resetToken) {
-        // Stub only for now — just log "Password reset email would be sent to: [email]"
-        log.info("Password reset email would be sent to: {} with token: {}", toEmail, resetToken);
+        String resetUrl = appProperties.getFrontendUrl() +
+                appProperties.getMail().getPasswordResetPath() +
+                "?token=" + resetToken;
+
+        log.info("Password reset link for {}: {}", toEmail, resetUrl);
+        // Full implementation will follow when password reset service is implemented
     }
 }

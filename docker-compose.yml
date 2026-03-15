@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: goaldone-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-goaldone}
+      POSTGRES_USER: ${DB_USER:-goaldone}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-goaldone-secret-pw}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-goaldone} -d ${DB_NAME:-goaldone}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    container_name: goaldone-backend
+    restart: always
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Spring Profiles
+      SPRING_PROFILES_ACTIVE: prod
+      
+      # Database
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-goaldone}
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-goaldone}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-goaldone-secret-pw}
+      
+      # Security & JWT
+      JWT_SECRET: ${JWT_SECRET:-dev-only-default-secret-change-in-prod}
+      SUPER_ADMINS_FILE: /app/super-admins.yml
+      
+      # Email
+      SPRING_MAIL_HOST: ${SPRING_MAIL_HOST}
+      SPRING_MAIL_PORT: ${SPRING_MAIL_PORT}
+      SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME}
+      SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD}
+      EMAIL_FROM: ${EMAIL_FROM}
+      
+      # Server Config
+      SERVER_PORT: 8080
+      MANAGEMENT_SERVER_PORT: 8081
+
+      FRONTEND_URL: ${FRONTEND_URL}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./super-admins.yml:/app/super-admins.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8081/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres-data:
