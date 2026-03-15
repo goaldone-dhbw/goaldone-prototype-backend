@@ -10,6 +10,8 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 @Repository
@@ -30,4 +32,6 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
             @Param("to") LocalDate to,
             Pageable pageable
     );
+
+    List<Task> findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(UUID ownerId, Collection<TaskStatus> statuses);
 }
