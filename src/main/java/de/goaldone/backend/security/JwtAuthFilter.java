@@ -46,6 +46,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             UUID organizationId = orgIdStr != null ? UUID.fromString(orgIdStr) : null;
             Role role = Role.valueOf(claims.get("role", String.class));
 
+            log.info("Validated JWT for user: {}, org: {}, role: {}", userId, organizationId, role);
+
             GoaldoneUserDetails userDetails = GoaldoneUserDetails.builder()
                     .userId(userId)
                     .organizationId(organizationId)
@@ -54,19 +56,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     .build();
 
             UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                    userId, // userId as principal as requested
+                    userId,
                     null,
                     userDetails.getAuthorities()
             );
 
-            authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-            // We can also attach userDetails as details if we want both
-            // authToken.setDetails(userDetails);
+            authToken.setDetails(userDetails);
 
             SecurityContextHolder.getContext().setAuthentication(authToken);
 
-        } catch (JwtException | IllegalArgumentException e) {
-            log.debug("JWT validation failed: {}", e.getMessage());
+        } catch (Exception e) {
+            log.error("JWT validation failed: {}", e.getMessage(), e);
         }
 
         filterChain.doFilter(request, response);
