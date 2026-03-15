@@ -1,0 +1,1706 @@
+openapi: 3.0.3
+info:
+  title: Goaldone API
+  description: |
+    **Goaldone** – Browserbasiertes Aufgaben-Planungssystem für Organisationen (TINF2024 Projektarbeit).
+
+    ## Authentifizierung
+    Die API verwendet JWT Bearer Tokens.
+    - **Access Token**: kurzlebig (15 Min.), für jeden API-Aufruf mitzusenden
+    - **Refresh Token**: langlebig (7 Tage), nur für `POST /auth/refresh` und `POST /auth/logout`
+    - Token Rotation: Bei jedem Refresh wird ein neues Refresh Token ausgestellt
+
+    Der JWT enthält folgende Claims:
+    - `sub` – UUID des Nutzers
+    - `organizationId` – UUID der Organisation (null bei SUPER_ADMIN ohne Org)
+    - `role` – Rolle des Nutzers (`SUPER_ADMIN`, `ADMIN`, `USER`)
+
+    ## Rollen (RBAC)
+    | Rolle | Beschreibung |
+    |---|---|
+    | `SUPER_ADMIN` | Plattformweite Verwaltung (Organisationen, Super-Admins) |
+    | `ADMIN` | Verwaltung der **eigenen** Organisation (Mitglieder, Einladungen, Einstellungen) |
+    | `USER` | Standard-Nutzer mit Zugriff auf eigene Aufgaben und Planung |
+
+    ## Mandantenfähigkeit & Tenant-Isolation
+    Goaldone ist eine **mandantenfähige Plattform** (Multi-Tenant). Jede Ressource
+    (Tasks, Mitglieder, Einladungen, Einstellungen) ist genau einer Organisation zugeordnet.
+
+    **Die Isolation wird ausschließlich serverseitig durchgesetzt** – niemals durch
+    clientseitige Parameter. Konkret bedeutet das:
+
+    - Der Server liest die `organizationId` **immer aus dem JWT**, nicht aus der URL oder dem Request Body.
+    - Ein `ADMIN` kann ausschließlich Ressourcen seiner eigenen Organisation lesen und schreiben.
+      Ein Zugriff auf eine fremde Organisation ist technisch unmöglich – der Server filtert
+      alle DB-Queries automatisch auf `WHERE organization_id = :jwtOrganizationId`.
+    - Auch wenn ein ADMIN die UUID einer fremden Organisation kennt, erhält er bei jedem
+      Versuch eine `403 Forbidden` Antwort.
+    - Nur `SUPER_ADMIN` darf organisationsübergreifend agieren (ausschließlich über `/admin/**`).
+
+    **Endpunkt-Konvention:** Aus diesem Grund verwenden Admin-Endpunkte `/organizations/me/...`
+    statt `/organizations/{orgId}/...`. Das `/me` signalisiert explizit, dass die Organisation
+    aus dem JWT-Kontext stammt und kein externer Parameter übergeben werden kann.
+
+    ## Team-Vorbereitung
+    Tasks sind aktuell benutzerspezifisch (`ownerId` = eingeloggter Nutzer).
+    Das `ownerId`-Feld ist bewusst entkoppelt von `userId`, sodass in einer
+    späteren Version Teams als Owner eingetragen werden können, ohne das
+    Datenmodell zu brechen.
+
+    ## Fehlerformat
+    Alle Fehler folgen **RFC 9457 Problem Details** mit Content-Type `application/problem+json`.
+
+    ## Paginierung
+    Listenendpunkte unterstützen `?page=0&size=20`. Die Antwort enthält
+    immer ein `PageMetadata`-Objekt mit `totalElements` und `totalPages`.
+
+    ## Wiederholungsaufgaben
+    Einfaches Modell: `type` (DAILY / WEEKLY / MONTHLY) + `interval` (alle N Einheiten).
+    Das Modell ist bewusst so strukturiert, dass es später zu RRULE (iCal-Standard)
+    erweitert werden kann, ohne Breaking Changes zu verursachen.
+
+    ## API Versionierung
+    Die API-Version ist einmalig im Server-Basispfad definiert (`/api/v1`).
+    Alle Endpunkte erben diese Version automatisch. Bei einem Breaking-Change
+    wird eine neue Server-URL `/api/v2` hinzugefügt, während `/api/v1` für
+    eine Übergangszeit parallel betrieben wird.
+
+  version: 1.0.0
+  contact:
+    name: TINF2024 Projektteam – Goaldone
+    url: https://goaldone.de
+
+servers:
+  - url: https://goaldone.de/api/v1
+    description: Produktionsumgebung
+  - url: http://localhost:8080/api/v1
+    description: Lokale Entwicklungsumgebung
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: auth
+    description: Authentifizierung und Token-Verwaltung
+  - name: users
+    description: Eigenes Nutzerprofil verwalten
+  - name: organizations
+    description: Eigene Organisation abrufen und konfigurieren (Admin)
+  - name: members
+    description: Mitglieder der Organisation verwalten (Admin)
+  - name: invitations
+    description: Einladungslinks verwalten (Admin)
+  - name: tasks
+    description: Aufgaben erstellen, abrufen, bearbeiten und löschen
+  - name: breaks
+    description: Persönliche Pausen konfigurieren
+  - name: schedule
+    description: Planungsalgorithmus ausführen und Wochenplan abrufen
+  - name: admin
+    description: Super-Admin Funktionen (Organisationen und Super-Admins verwalten)
+
+paths:
+
+  # ════════════════════════════════════════════
+  # AUTH
+  # ════════════════════════════════════════════
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Login mit E-Mail und Passwort
+      description: Gibt Access Token und Refresh Token zurück.
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login erfolgreich
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Access Token erneuern (Token Rotation)
+      description: |
+        Gibt einen neuen Access Token und einen neuen Refresh Token zurück.
+        Der alte Refresh Token wird invalidiert (Token Rotation).
+      security: []
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Token erfolgreich erneuert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Logout – Refresh Token invalidieren
+      description: Invalidiert den übergebenen Refresh Token serverseitig.
+      operationId: logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '204':
+          description: Erfolgreich ausgeloggt
+
+  /auth/password/change:
+    post:
+      tags: [auth]
+      summary: Passwort ändern
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Passwort erfolgreich geändert
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/invitations/{token}/accept:
+    post:
+      tags: [auth, invitations]
+      summary: Einladung annehmen und Account erstellen
+      description: |
+        Öffentlicher Endpunkt (kein JWT erforderlich).
+        Der Nutzer setzt sein Passwort und wird direkt eingeloggt.
+        Der Einladungstoken ist 48 Stunden gültig.
+      security: []
+      operationId: acceptInvitation
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: UUID-Token aus dem Einladungslink
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptInvitationRequest'
+      responses:
+        '201':
+          description: Account erstellt, direkt eingeloggt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: Einladungslink abgelaufen oder bereits verwendet
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  # ════════════════════════════════════════════
+  # USERS (eigenes Profil)
+  # ════════════════════════════════════════════
+
+  /users/me:
+    get:
+      tags: [users]
+      summary: Eigenes Profil abrufen
+      operationId: getMyProfile
+      responses:
+        '200':
+          description: Eigenes Nutzerprofil
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    put:
+      tags: [users]
+      summary: Eigenes Profil aktualisieren
+      operationId: updateMyProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: Profil aktualisiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    delete:
+      tags: [users]
+      summary: Eigenen Account löschen (Hard Delete)
+      operationId: deleteMyAccount
+      responses:
+        '204':
+          description: Account und alle zugehörigen Daten gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ════════════════════════════════════════════
+  # ORGANIZATION (Admin)
+  # ════════════════════════════════════════════
+
+  /organizations/me:
+    get:
+      tags: [organizations]
+      summary: Eigene Organisation abrufen
+      operationId: getMyOrganization
+      responses:
+        '200':
+          description: Organisationsdaten
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /organizations/me/settings:
+    put:
+      tags: [organizations]
+      summary: Organisationseinstellungen aktualisieren
+      description: Nur für Nutzer mit Rolle ADMIN oder höher.
+      operationId: updateOrganizationSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrganizationSettingsRequest'
+      responses:
+        '200':
+          description: Einstellungen aktualisiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ════════════════════════════════════════════
+  # MEMBERS (Admin)
+  # ════════════════════════════════════════════
+
+  /organizations/me/members:
+    get:
+      tags: [members]
+      summary: Alle Mitglieder der Organisation auflisten
+      description: Nur für Nutzer mit Rolle ADMIN oder höher.
+      operationId: listMembers
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: Paginierte Mitgliederliste
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /organizations/me/members/{userId}:
+    delete:
+      tags: [members]
+      summary: Mitglied aus der Organisation entfernen
+      description: Nur für Nutzer mit Rolle ADMIN oder höher.
+      operationId: removeMember
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      responses:
+        '204':
+          description: Mitglied entfernt
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /organizations/me/members/{userId}/role:
+    patch:
+      tags: [members]
+      summary: Rolle eines Mitglieds ändern
+      description: Nur für Nutzer mit Rolle ADMIN oder höher.
+      operationId: updateMemberRole
+      parameters:
+        - $ref: '#/components/parameters/UserIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemberRoleRequest'
+      responses:
+        '200':
+          description: Rolle aktualisiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════
+  # INVITATIONS (Admin)
+  # ════════════════════════════════════════════
+
+  /organizations/me/invitations:
+    get:
+      tags: [invitations]
+      summary: Offene Einladungen auflisten
+      description: Nur für Nutzer mit Rolle ADMIN oder höher.
+      operationId: listInvitations
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: Paginierte Liste offener Einladungen
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [invitations]
+      summary: Einladung per E-Mail versenden
+      description: |
+        Sendet eine Einladungs-E-Mail mit einem Einmal-Token-Link an die angegebene Adresse.
+        Der Token ist 48 Stunden gültig.
+        Nur für Nutzer mit Rolle ADMIN oder höher.
+      operationId: createInvitation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInvitationRequest'
+      responses:
+        '201':
+          description: Einladung erstellt und E-Mail versendet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Nutzer ist bereits Mitglied oder eine offene Einladung existiert bereits
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /organizations/me/invitations/{invitationId}:
+    delete:
+      tags: [invitations]
+      summary: Einladung widerrufen
+      description: Invalidiert den Einladungslink. Nur für Nutzer mit Rolle ADMIN oder höher.
+      operationId: revokeInvitation
+      parameters:
+        - name: invitationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Einladung widerrufen
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════
+  # TASKS
+  # ════════════════════════════════════════════
+
+  /tasks:
+    get:
+      tags: [tasks]
+      summary: Eigene Tasks auflisten
+      description: |
+        Gibt paginiert alle Tasks des eingeloggten Nutzers zurück.
+        Filterbar nach Status und Deadline-Zeitraum.
+      operationId: listTasks
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+        - name: status
+          in: query
+          description: Nur Tasks mit diesem Status zurückgeben
+          schema:
+            $ref: '#/components/schemas/TaskStatus'
+        - name: from
+          in: query
+          description: Nur Tasks mit Deadline ab diesem Datum (ISO 8601 Date)
+          schema:
+            type: string
+            format: date
+            example: "2026-04-01"
+        - name: to
+          in: query
+          description: Nur Tasks mit Deadline bis zu diesem Datum (ISO 8601 Date)
+          schema:
+            type: string
+            format: date
+            example: "2026-04-30"
+      responses:
+        '200':
+          description: Paginierte Task-Liste
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [tasks]
+      summary: Neuen Task erstellen
+      description: |
+        Erstellt einen neuen Task für den eingeloggten Nutzer.
+        Wenn `estimatedDurationMinutes` > 480 (8h), wird empfohlen, den Task zu splitten
+        – dies kann entweder clientseitig angeboten oder serverseitig automatisch erfolgen.
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: Task erfolgreich erstellt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /tasks/{taskId}:
+    get:
+      tags: [tasks]
+      summary: Einzelnen Task abrufen
+      operationId: getTask
+      parameters:
+        - $ref: '#/components/parameters/TaskIdParam'
+      responses:
+        '200':
+          description: Task-Details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [tasks]
+      summary: Task vollständig aktualisieren
+      operationId: updateTask
+      parameters:
+        - $ref: '#/components/parameters/TaskIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTaskRequest'
+      responses:
+        '200':
+          description: Task aktualisiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [tasks]
+      summary: Task löschen (Hard Delete)
+      operationId: deleteTask
+      parameters:
+        - $ref: '#/components/parameters/TaskIdParam'
+      responses:
+        '204':
+          description: Task gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /tasks/{taskId}/complete:
+    patch:
+      tags: [tasks]
+      summary: Task als erledigt markieren
+      description: Setzt den Status des Tasks auf DONE und setzt completedAt.
+      operationId: completeTask
+      parameters:
+        - $ref: '#/components/parameters/TaskIdParam'
+      responses:
+        '200':
+          description: Task als erledigt markiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Task ist bereits erledigt
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /tasks/{taskId}/reopen:
+    patch:
+      tags: [tasks]
+      summary: Erledigten Task wieder öffnen
+      description: Setzt den Status des Tasks von DONE zurück auf OPEN.
+      operationId: reopenTask
+      parameters:
+        - $ref: '#/components/parameters/TaskIdParam'
+      responses:
+        '200':
+          description: Task wieder geöffnet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Task ist nicht erledigt
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  # ════════════════════════════════════════════
+  # BREAKS
+  # ════════════════════════════════════════════
+
+  /breaks:
+    get:
+      tags: [breaks]
+      summary: Eigene Pausen abrufen
+      description: Gibt alle konfigurierten Pausen des eingeloggten Nutzers zurück.
+      operationId: listBreaks
+      responses:
+        '200':
+          description: Pausenliste
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BreakResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [breaks]
+      summary: Neue Pause erstellen
+      operationId: createBreak
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBreakRequest'
+      responses:
+        '201':
+          description: Pause erstellt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BreakResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /breaks/{breakId}:
+    put:
+      tags: [breaks]
+      summary: Pause aktualisieren
+      operationId: updateBreak
+      parameters:
+        - $ref: '#/components/parameters/BreakIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBreakRequest'
+      responses:
+        '200':
+          description: Pause aktualisiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BreakResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [breaks]
+      summary: Pause löschen (Hard Delete)
+      operationId: deleteBreak
+      parameters:
+        - $ref: '#/components/parameters/BreakIdParam'
+      responses:
+        '204':
+          description: Pause gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════
+  # SCHEDULE / PLANNING
+  # ════════════════════════════════════════════
+
+  /schedule:
+    get:
+      tags: [schedule]
+      summary: Aktuellen Plan für einen Zeitraum abrufen
+      description: |
+        Gibt den zuletzt generierten Plan für den angegebenen Zeitraum zurück.
+        Enthält sowohl Tasks als auch Pausen als `ScheduleEntry`-Objekte.
+      operationId: getSchedule
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: Startdatum (ISO 8601)
+          schema:
+            type: string
+            format: date
+            example: "2026-04-07"
+        - name: to
+          in: query
+          required: true
+          description: Enddatum (ISO 8601)
+          schema:
+            type: string
+            format: date
+            example: "2026-04-11"
+      responses:
+        '200':
+          description: Wochenplan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /schedule/generate:
+    post:
+      tags: [schedule]
+      summary: Planungsalgorithmus ausführen (synchron)
+      description: |
+        Führt den Planungsalgorithmus für den angegebenen Zeitraum synchron aus.
+        Der Server antwortet erst, wenn der Plan vollständig generiert ist.
+
+        **Algorithmus-Prinzipien (aus Anforderungsdokument):**
+        - Max. ~4h kognitive Arbeit pro Tag (konfigurierbar via `maxDailyWorkMinutes`)
+        - Aufgaben werden nach `cognitiveLoad` und `deadline` priorisiert
+        - Pausen des Nutzers werden berücksichtigt und blockiert
+        - Tasks länger als ein Arbeitstag werden automatisch gesplittet
+
+        Der generierte Plan überschreibt den vorherigen Plan für denselben Zeitraum.
+      operationId: generateSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateScheduleRequest'
+      responses:
+        '200':
+          description: Plan erfolgreich generiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ════════════════════════════════════════════
+  # SUPER-ADMIN
+  # ════════════════════════════════════════════
+
+  /admin/organizations:
+    get:
+      tags: [admin]
+      summary: Alle Organisationen auflisten (Super-Admin)
+      operationId: listOrganizations
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: Paginierte Organisationsliste
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [admin]
+      summary: Neue Organisation anlegen (Super-Admin)
+      description: |
+        Legt eine neue Organisation an und sendet eine Einladungs-E-Mail
+        an die angegebene Admin-E-Mail-Adresse.
+      operationId: createOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrganizationRequest'
+      responses:
+        '201':
+          description: Organisation erstellt, Einladungs-E-Mail an Admin versendet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Organisation mit diesem Namen existiert bereits
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /admin/organizations/{orgId}:
+    delete:
+      tags: [admin]
+      summary: Organisation löschen (Super-Admin, Hard Delete)
+      operationId: deleteOrganization
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Organisation und alle zugehörigen Daten gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/super-admins:
+    post:
+      tags: [admin]
+      summary: Neuen Super-Admin hinzufügen (Super-Admin)
+      description: Erteilt einem bestehenden Nutzer die SUPER_ADMIN Rolle.
+      operationId: addSuperAdmin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddSuperAdminRequest'
+      responses:
+        '200':
+          description: Nutzer ist jetzt Super-Admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+# ════════════════════════════════════════════
+# COMPONENTS
+# ════════════════════════════════════════════
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "JWT Access Token. Format: Authorization: Bearer <token>"
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: Seitennummer (0-basiert)
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
+      example: 0
+
+    SizeParam:
+      name: size
+      in: query
+      description: Anzahl Einträge pro Seite
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+      example: 20
+
+    TaskIdParam:
+      name: taskId
+      in: path
+      required: true
+      description: UUID des Tasks
+      schema:
+        type: string
+        format: uuid
+
+    BreakIdParam:
+      name: breakId
+      in: path
+      required: true
+      description: UUID der Pause
+      schema:
+        type: string
+        format: uuid
+
+    UserIdParam:
+      name: userId
+      in: path
+      required: true
+      description: UUID des Nutzers
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Ungültige Anfrage (Validierungsfehler)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: "https://goaldone.de/problems/validation-error"
+            title: "Validation Error"
+            status: 400
+            detail: "Das Feld 'title' darf nicht leer sein."
+            instance: "/api/v1/tasks"
+
+    Unauthorized:
+      description: Nicht authentifiziert – JWT fehlt oder ist ungültig/abgelaufen
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: "https://goaldone.de/problems/unauthorized"
+            title: "Unauthorized"
+            status: 401
+            detail: "JWT Token ist abgelaufen."
+            instance: "/api/v1/tasks"
+
+    Forbidden:
+      description: Keine Berechtigung – Rolle reicht nicht aus
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: "https://goaldone.de/problems/forbidden"
+            title: "Forbidden"
+            status: 403
+            detail: "Diese Aktion erfordert die Rolle ADMIN."
+            instance: "/api/v1/organizations/me/members"
+
+    NotFound:
+      description: Ressource nicht gefunden
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: "https://goaldone.de/problems/not-found"
+            title: "Not Found"
+            status: 404
+            detail: "Task mit ID 'abc123' wurde nicht gefunden."
+            instance: "/api/v1/tasks/abc123"
+
+  schemas:
+
+    # ── RFC 9457 Problem Details ──────────────────────────
+
+    ProblemDetail:
+      type: object
+      description: Fehlerantwort nach RFC 9457 (Problem Details for HTTP APIs)
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI, die den Fehlertyp eindeutig identifiziert
+          example: "https://goaldone.de/problems/validation-error"
+        title:
+          type: string
+          description: Kurze, menschenlesbare Fehlerbeschreibung
+          example: "Validation Error"
+        status:
+          type: integer
+          description: HTTP Status Code
+          example: 400
+        detail:
+          type: string
+          description: Detaillierte Fehlermeldung für diesen spezifischen Aufruf
+          example: "Das Feld 'title' darf nicht leer sein."
+        instance:
+          type: string
+          format: uri
+          description: URI des Endpunkts, der den Fehler verursacht hat
+          example: "/api/v1/tasks"
+        errors:
+          type: array
+          description: Feldspezifische Validierungsfehler (nur bei 400 Bad Request)
+          items:
+            $ref: '#/components/schemas/FieldError'
+      required: [type, title, status, detail, instance]
+
+    FieldError:
+      type: object
+      description: Validierungsfehler für ein einzelnes Feld
+      properties:
+        field:
+          type: string
+          example: "title"
+        message:
+          type: string
+          example: "Darf nicht leer sein"
+      required: [field, message]
+
+    # ── Auth ──────────────────────────────────────────────
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: "max.mustermann@firma.de"
+        password:
+          type: string
+          format: password
+          example: "SuperSecret123!"
+      required: [email, password]
+
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: "JWT Access Token, gültig 15 Minuten"
+        refreshToken:
+          type: string
+          description: "Refresh Token, gültig 7 Tage"
+        user:
+          $ref: '#/components/schemas/UserResponse'
+      required: [accessToken, refreshToken, user]
+
+    RefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+      required: [refreshToken]
+
+    RefreshResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: "Neuer JWT Access Token, gültig 15 Minuten"
+        refreshToken:
+          type: string
+          description: "Neuer Refresh Token (Token Rotation), gültig 7 Tage"
+      required: [accessToken, refreshToken]
+
+    ChangePasswordRequest:
+      type: object
+      properties:
+        currentPassword:
+          type: string
+          format: password
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+      required: [currentPassword, newPassword]
+
+    AcceptInvitationRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+          example: "Max"
+        lastName:
+          type: string
+          example: "Mustermann"
+        password:
+          type: string
+          format: password
+          minLength: 8
+      required: [firstName, lastName, password]
+
+    # ── User ──────────────────────────────────────────────
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+        lastName:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        organizationId:
+          type: string
+          format: uuid
+          nullable: true
+          description: "Null bei Super-Admins ohne Organisationszugehörigkeit"
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, email, firstName, lastName, role, createdAt]
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+        lastName:
+          type: string
+          minLength: 1
+      required: [firstName, lastName]
+
+    # ── Organization ──────────────────────────────────────
+
+    OrganizationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "DATEV eG"
+        adminEmail:
+          type: string
+          format: email
+        allowedDomain:
+          type: string
+          nullable: true
+          example: "datev.de"
+          description: "Domain-Whitelist (optional). Wenn gesetzt, können sich Nutzer mit dieser E-Mail-Domain selbst registrieren."
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, name, adminEmail, createdAt]
+
+    CreateOrganizationRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          example: "DATEV eG"
+        adminEmail:
+          type: string
+          format: email
+          description: "E-Mail des ersten Admins. Er erhält automatisch eine Einladungs-E-Mail."
+      required: [name, adminEmail]
+
+    UpdateOrganizationSettingsRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        allowedDomain:
+          type: string
+          nullable: true
+          description: "Domain-Whitelist setzen oder mit null entfernen"
+          example: "datev.de"
+
+    OrganizationPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMetadata'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/OrganizationResponse'
+          required: [content]
+
+    # ── Member ────────────────────────────────────────────
+
+    MemberResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+        lastName:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        joinedAt:
+          type: string
+          format: date-time
+      required: [id, email, firstName, lastName, role, joinedAt]
+
+    UpdateMemberRoleRequest:
+      type: object
+      properties:
+        role:
+          $ref: '#/components/schemas/Role'
+          description: "Erlaubte Werte: ADMIN, USER (SUPER_ADMIN nicht über diesen Endpunkt)"
+      required: [role]
+
+    MemberPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMetadata'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/MemberResponse'
+          required: [content]
+
+    # ── Invitation ────────────────────────────────────────
+
+    InvitationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        organizationId:
+          type: string
+          format: uuid
+        expiresAt:
+          type: string
+          format: date-time
+          description: "Ablaufzeitpunkt des Einladungslinks (48h nach Erstellung)"
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, email, organizationId, expiresAt, createdAt]
+
+    CreateInvitationRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required: [email]
+
+    InvitationPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMetadata'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/InvitationResponse'
+          required: [content]
+
+    TaskPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMetadata'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/TaskResponse'
+          required: [content]
+
+    # ── Task ──────────────────────────────────────────────
+
+    TaskResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        cognitiveLoad:
+          $ref: '#/components/schemas/CognitiveLoad'
+        estimatedDurationMinutes:
+          type: integer
+          description: "Geschätzte Arbeitsdauer in Minuten"
+          example: 90
+        deadline:
+          type: string
+          format: date
+          nullable: true
+        recurrence:
+          $ref: '#/components/schemas/RecurrenceRule'
+          nullable: true
+        parentTaskId:
+          type: string
+          format: uuid
+          nullable: true
+          description: "Gesetzt wenn dieser Task durch automatisches Task-Splitting entstanden ist (Ursprungs-Task-Referenz)"
+        ownerId:
+          type: string
+          format: uuid
+          description: "Aktuell immer der eingeloggte Nutzer. Vorbereitet für zukünftige Team-Features."
+        organizationId:
+          type: string
+          format: uuid
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, title, status, cognitiveLoad, estimatedDurationMinutes, ownerId, organizationId, createdAt, updatedAt]
+
+    CreateTaskRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: "Anforderungsanalyse fertigstellen"
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        cognitiveLoad:
+          $ref: '#/components/schemas/CognitiveLoad'
+        estimatedDurationMinutes:
+          type: integer
+          minimum: 1
+          example: 90
+          description: "Geschätzte Arbeitsdauer in Minuten. Bei > 480 (8h) empfiehlt das System Splitting."
+        deadline:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-04-30"
+        recurrence:
+          $ref: '#/components/schemas/RecurrenceRule'
+          nullable: true
+      required: [title, cognitiveLoad, estimatedDurationMinutes]
+
+    UpdateTaskRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        cognitiveLoad:
+          $ref: '#/components/schemas/CognitiveLoad'
+        estimatedDurationMinutes:
+          type: integer
+          minimum: 1
+        deadline:
+          type: string
+          format: date
+          nullable: true
+        recurrence:
+          $ref: '#/components/schemas/RecurrenceRule'
+          nullable: true
+      required: [title, cognitiveLoad, estimatedDurationMinutes]
+
+    RecurrenceRule:
+      type: object
+      description: |
+        Wiederholungsregel für Tasks und Pausen.
+
+        **Aktuelles Modell (MVP):** Typ + Intervall
+        Beispiele:
+        - `{ "type": "DAILY", "interval": 1 }` → jeden Tag
+        - `{ "type": "WEEKLY", "interval": 2 }` → alle 2 Wochen
+        - `{ "type": "MONTHLY", "interval": 1 }` → jeden Monat
+
+        **Erweiterbarkeit:** Das Modell ist so strukturiert, dass es in einer
+        späteren Version um ein `rrule`-Feld (iCal RRULE-Standard) ergänzt werden
+        kann, ohne bestehende Clients zu brechen.
+      properties:
+        type:
+          $ref: '#/components/schemas/RecurrenceType'
+        interval:
+          type: integer
+          minimum: 1
+          default: 1
+          description: "Alle N Einheiten wiederholen (abhängig von type)"
+          example: 1
+      required: [type, interval]
+
+    # ── Break ─────────────────────────────────────────────
+
+    BreakResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          example: "Mittagspause"
+        startTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: "12:00"
+          description: "Uhrzeit im Format HH:mm"
+        endTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: "13:00"
+          description: "Uhrzeit im Format HH:mm"
+        recurrence:
+          $ref: '#/components/schemas/RecurrenceRule'
+      required: [id, label, startTime, endTime, recurrence]
+
+    CreateBreakRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+          example: "Mittagspause"
+        startTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: "12:00"
+        endTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: "13:00"
+        recurrence:
+          $ref: '#/components/schemas/RecurrenceRule'
+      required: [label, startTime, endTime, recurrence]
+
+    # ── Schedule ──────────────────────────────────────────
+
+    ScheduleResponse:
+      type: object
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+          description: "Zeitstempel der letzten Plan-Generierung"
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        totalWorkMinutes:
+          type: integer
+          description: "Summe aller eingeplanten Arbeitsminuten im Zeitraum"
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleEntry'
+      required: [generatedAt, from, to, totalWorkMinutes, entries]
+
+    ScheduleEntry:
+      type: object
+      description: "Ein eingeplanter Zeitblock im Plan (Task-Block oder Pause)"
+      properties:
+        date:
+          type: string
+          format: date
+          example: "2026-04-07"
+        startTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: "09:00"
+        endTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: "10:30"
+        type:
+          type: string
+          enum: [TASK, BREAK]
+        taskId:
+          type: string
+          format: uuid
+          nullable: true
+          description: "Gesetzt wenn type = TASK"
+        taskTitle:
+          type: string
+          nullable: true
+          description: "Gesetzt wenn type = TASK (Convenience-Feld)"
+        breakId:
+          type: string
+          format: uuid
+          nullable: true
+          description: "Gesetzt wenn type = BREAK"
+        breakLabel:
+          type: string
+          nullable: true
+          description: "Gesetzt wenn type = BREAK (Convenience-Feld)"
+      required: [date, startTime, endTime, type]
+
+    GenerateScheduleRequest:
+      type: object
+      properties:
+        from:
+          type: string
+          format: date
+          description: "Startdatum des zu planenden Zeitraums"
+          example: "2026-04-07"
+        to:
+          type: string
+          format: date
+          description: "Enddatum des zu planenden Zeitraums"
+          example: "2026-04-11"
+        maxDailyWorkMinutes:
+          type: integer
+          default: 240
+          minimum: 30
+          maximum: 480
+          description: "Maximale kognitive Arbeitszeit pro Tag in Minuten. Default: 240 (4h, basierend auf wissenschaftlicher Empfehlung aus Anforderungsdokument)"
+          example: 240
+      required: [from, to]
+
+    # ── Super-Admin ───────────────────────────────────────
+
+    AddSuperAdminRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          description: "E-Mail eines bestehenden Nutzers, der Super-Admin werden soll"
+      required: [email]
+
+    # ── Pagination ────────────────────────────────────────
+
+    PageMetadata:
+      type: object
+      description: "Paginierungsmetadaten, enthalten in allen paginierten Antworten"
+      properties:
+        page:
+          type: integer
+          description: "Aktuelle Seitennummer (0-basiert)"
+          example: 0
+        size:
+          type: integer
+          description: "Einträge pro Seite"
+          example: 20
+        totalElements:
+          type: integer
+          description: "Gesamtanzahl aller Einträge"
+          example: 42
+        totalPages:
+          type: integer
+          description: "Gesamtanzahl der Seiten"
+          example: 3
+      required: [page, size, totalElements, totalPages]
+
+    # ── Enums ─────────────────────────────────────────────
+
+    Role:
+      type: string
+      enum: [SUPER_ADMIN, ADMIN, USER]
+      description: |
+        Nutzerrollen (RBAC):
+        - `SUPER_ADMIN`: Plattformweite Verwaltung (Organisationen erstellen/löschen, Super-Admins ernennen)
+        - `ADMIN`: Verwaltung der eigenen Organisation (Mitglieder, Einladungen, Einstellungen)
+        - `USER`: Standard-Nutzer (eigene Tasks und Planung)
+
+    TaskStatus:
+      type: string
+      enum: [OPEN, IN_PROGRESS, DONE]
+      description: |
+        Status eines Tasks:
+        - `OPEN`: Noch nicht begonnen
+        - `IN_PROGRESS`: Wird gerade bearbeitet
+        - `DONE`: Abgeschlossen (setzt `completedAt`)
+
+    CognitiveLoad:
+      type: string
+      enum: [LOW, MEDIUM, HIGH]
+      description: |
+        Kognitive Belastung der Aufgabe (aus Anforderungsdokument: "Wie fordernd ist die Aufgabe?"):
+        - `LOW`: Routine / stupide Aufgabe (z.B. E-Mails sortieren)
+        - `MEDIUM`: Normaler Arbeitsaufwand
+        - `HIGH`: Höchste Konzentration erforderlich (z.B. komplexe Analyse)
+
+        Der Planungsalgorithmus nutzt dieses Feld um `HIGH`-Tasks bevorzugt in
+        produktive Morgenstunden einzuplanen.
+
+    RecurrenceType:
+      type: string
+      enum: [DAILY, WEEKLY, MONTHLY]
+      description: |
+        Wiederholungstyp (MVP-Modell, erweiterbar zu RRULE):
+        - `DAILY`: Täglich (z.B. E-Mails checken)
+        - `WEEKLY`: Wöchentlich
+        - `MONTHLY`: Monatlich
