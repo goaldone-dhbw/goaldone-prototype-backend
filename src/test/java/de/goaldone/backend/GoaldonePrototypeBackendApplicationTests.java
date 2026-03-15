@@ -1,4 +1,4 @@
-package de.goaldone.goaldone_prototype_backend;
+package de.goaldone.backend;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
