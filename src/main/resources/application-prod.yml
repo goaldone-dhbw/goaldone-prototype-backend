@@ -37,6 +37,9 @@ app:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
   super-admins-file: ${SUPER_ADMINS_FILE:super-admins.yml}
 
+server:
+  forward-headers-strategy: framework
+
 management:
   server:
     port: 8081

@@ -71,7 +71,7 @@ info:
     url: https://goaldone.de
 
 servers:
-  - url: https://goaldone.de/api/v1
+  - url: https://api-prototyp.goaldone.de/api/v1
     description: Produktionsumgebung
   - url: http://localhost:8080/api/v1
     description: Lokale Entwicklungsumgebung
