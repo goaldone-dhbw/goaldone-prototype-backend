@@ -16,3 +16,18 @@ spring:
 
   jpa:
     show-sql: true
+
+  # Start local mail catcher: docker run -d -p 1025:1025 -p 8025:8025 axllent/mailpit
+  # View captured emails at: http://localhost:8025
+  mail:
+    host: localhost
+    port: 1026
+    properties:
+      mail.smtp.auth: false
+      mail.smtp.starttls.enable: false
+      mail.smtp.starttls.required: false
+
+app:
+  frontend-url: http://localhost:4200
+  cors:
+    allowed-origins: "*"

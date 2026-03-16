@@ -1,0 +1,5 @@
+superAdmins:
+  - email: superadmin@example.de
+    firstName: Super
+    lastName: Admin
+    password: YourStrongPassword123!
