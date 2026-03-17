@@ -5,10 +5,12 @@ info:
     **Goaldone** – Browserbasiertes Aufgaben-Planungssystem für Organisationen (TINF2024 Projektarbeit).
 
     ## Authentifizierung
-    Die API verwendet JWT Bearer Tokens.
-    - **Access Token**: kurzlebig (15 Min.), für jeden API-Aufruf mitzusenden
-    - **Refresh Token**: langlebig (7 Tage), nur für `POST /auth/refresh` und `POST /auth/logout`
-    - Token Rotation: Bei jedem Refresh wird ein neues Refresh Token ausgestellt
+    Die API verwendet JWT Bearer Tokens kombiniert mit einem HttpOnly Cookie für den Refresh Token.
+    - **Access Token**: kurzlebig (15 Min.), für jeden API-Aufruf als `Authorization: Bearer <token>` Header mitzusenden
+    - **Refresh Token**: langlebig (7 Tage), wird ausschließlich als HttpOnly Cookie (`refresh_token`) übertragen.
+      JavaScript-Code kann diesen Token niemals lesen (XSS-Schutz).
+      Der Cookie wird nur an `/auth/refresh` und `/auth/logout` gesendet (`Path=/api/v1/auth`, `SameSite=Strict`).
+    - Token Rotation: Bei jedem Refresh wird ein neues Refresh Token Cookie ausgestellt, das alte wird invalidiert
 
     Der JWT enthält folgende Claims:
     - `sub` – UUID des Nutzers
@@ -109,7 +111,11 @@ paths:
     post:
       tags: [auth]
       summary: Login mit E-Mail und Passwort
-      description: Gibt Access Token und Refresh Token zurück.
+      description: |
+        Gibt den Access Token im Response Body zurück.
+        Setzt den Refresh Token als HttpOnly Cookie (nicht im Body).
+        Der Cookie ist auf `Path=/api/v1/auth` beschränkt und wird vom Browser
+        ausschließlich an `/auth/refresh` und `/auth/logout` mitgesendet.
       security: []
       operationId: login
       requestBody:
@@ -121,6 +127,14 @@ paths:
       responses:
         '200':
           description: Login erfolgreich
+          headers:
+            Set-Cookie:
+              description: |
+                HttpOnly Refresh Token Cookie.
+                Format: refresh_token=<token>; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=604800
+              schema:
+                type: string
+                example: "refresh_token=eyJ...; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=604800"
           content:
             application/json:
               schema:
@@ -133,19 +147,28 @@ paths:
       tags: [auth]
       summary: Access Token erneuern (Token Rotation)
       description: |
-        Gibt einen neuen Access Token und einen neuen Refresh Token zurück.
-        Der alte Refresh Token wird invalidiert (Token Rotation).
+        Liest den Refresh Token aus dem HttpOnly Cookie `refresh_token`.
+        Gibt einen neuen Access Token im Body zurück und setzt einen neuen Refresh Token Cookie.
+        Der alte Refresh Token Cookie wird serverseitig invalidiert (Token Rotation).
+        Kein Request Body erforderlich – der Cookie wird vom Browser automatisch mitgesendet.
       security: []
       operationId: refreshToken
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshRequest'
+      parameters:
+        - in: cookie
+          name: refresh_token
+          required: true
+          schema:
+            type: string
+          description: "HttpOnly Refresh Token Cookie (wird vom Browser automatisch mitgesendet)"
       responses:
         '200':
           description: Token erfolgreich erneuert
+          headers:
+            Set-Cookie:
+              description: "Neuer Refresh Token Cookie (Token Rotation, ersetzt den alten)"
+              schema:
+                type: string
+                example: "refresh_token=eyJ...; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=604800"
           content:
             application/json:
               schema:
@@ -157,17 +180,27 @@ paths:
     post:
       tags: [auth]
       summary: Logout – Refresh Token invalidieren
-      description: Invalidiert den übergebenen Refresh Token serverseitig.
+      description: |
+        Liest den Refresh Token aus dem HttpOnly Cookie und invalidiert ihn serverseitig.
+        Löscht den Cookie durch Setzen von Max-Age=0.
+        Kein Request Body erforderlich – der Cookie wird vom Browser automatisch mitgesendet.
       operationId: logout
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshRequest'
+      parameters:
+        - in: cookie
+          name: refresh_token
+          required: true
+          schema:
+            type: string
+          description: "HttpOnly Refresh Token Cookie (wird vom Browser automatisch mitgesendet)"
       responses:
         '204':
           description: Erfolgreich ausgeloggt
+          headers:
+            Set-Cookie:
+              description: "Löscht den Refresh Token Cookie (Max-Age=0)"
+              schema:
+                type: string
+                example: "refresh_token=; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=0"
 
   /auth/password/change:
     post:
@@ -214,6 +247,12 @@ paths:
       responses:
         '201':
           description: Account erstellt, direkt eingeloggt
+          headers:
+            Set-Cookie:
+              description: "HttpOnly Refresh Token Cookie (identisch mit Login-Endpunkt)"
+              schema:
+                type: string
+                example: "refresh_token=eyJ...; HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth; Max-Age=604800"
           content:
             application/json:
               schema:
@@ -953,6 +992,12 @@ components:
       bearerFormat: JWT
       description: "JWT Access Token. Format: Authorization: Bearer <token>"
 
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+      description: "HttpOnly Refresh Token Cookie. Wird ausschließlich von /auth/refresh und /auth/logout verwendet."
+
   parameters:
     PageParam:
       name: page
@@ -1125,19 +1170,9 @@ components:
         accessToken:
           type: string
           description: "JWT Access Token, gültig 15 Minuten"
-        refreshToken:
-          type: string
-          description: "Refresh Token, gültig 7 Tage"
         user:
           $ref: '#/components/schemas/UserResponse'
-      required: [accessToken, refreshToken, user]
-
-    RefreshRequest:
-      type: object
-      properties:
-        refreshToken:
-          type: string
-      required: [refreshToken]
+      required: [accessToken, user]
 
     RefreshResponse:
       type: object
@@ -1145,10 +1180,7 @@ components:
         accessToken:
           type: string
           description: "Neuer JWT Access Token, gültig 15 Minuten"
-        refreshToken:
-          type: string
-          description: "Neuer Refresh Token (Token Rotation), gültig 7 Tage"
-      required: [accessToken, refreshToken]
+      required: [accessToken]
 
     ChangePasswordRequest:
       type: object

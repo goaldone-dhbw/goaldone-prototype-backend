@@ -32,12 +32,24 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
         final String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        if (authHeader == null) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        final String jwt = authHeader.substring(7);
+        if (!authHeader.startsWith("Bearer ")) {
+            log.warn("Authorization header does not start with 'Bearer ': {}", authHeader);
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        final String jwt = authHeader.substring(7).trim();
+
+        if (jwt.isEmpty()) {
+            log.warn("JWT part of Authorization header is empty");
+            filterChain.doFilter(request, response);
+            return;
+        }
 
         try {
             Claims claims = jwtService.validateToken(jwt);
@@ -46,13 +58,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             UUID organizationId = orgIdStr != null ? UUID.fromString(orgIdStr) : null;
             Role role = Role.valueOf(claims.get("role", String.class));
 
-            log.info("Validated JWT for user: {}, org: {}, role: {}", userId, organizationId, role);
+            log.info("Successfully validated JWT for user: {}, role: {}", userId, role);
 
             GoaldoneUserDetails userDetails = GoaldoneUserDetails.builder()
                     .userId(userId)
                     .organizationId(organizationId)
                     .role(role)
-                    // email and password not strictly needed for auth filter if not using UserDetailsService later
                     .build();
 
             UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
@@ -65,8 +76,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
             SecurityContextHolder.getContext().setAuthentication(authToken);
 
+        } catch (io.jsonwebtoken.ExpiredJwtException e) {
+            log.info("JWT expired: {}", e.getMessage());
+        } catch (io.jsonwebtoken.MalformedJwtException e) {
+            log.info("Malformed JWT received: {}", e.getMessage());
+        } catch (io.jsonwebtoken.security.SignatureException e) {
+            log.info("Invalid JWT signature: {}", e.getMessage());
         } catch (Exception e) {
-            log.error("JWT validation failed: {}", e.getMessage(), e);
+            log.error("Unexpected error during JWT validation: {}", e.getMessage(), e);
         }
 
         filterChain.doFilter(request, response);

@@ -95,6 +95,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ProblemDetail> handleConstraintViolation(ConstraintViolationException ex, HttpServletRequest request) {
+        // Special case for missing refresh token: return 401 instead of 400
+        boolean isAuthError = ex.getConstraintViolations().stream()
+                .anyMatch(v -> v.getPropertyPath().toString().contains("refreshToken"));
+
+        if (isAuthError && request.getRequestURI().contains("/auth/")) {
+            return createProblemResponse(HttpStatus.UNAUTHORIZED, "Unauthorized", "Refresh token is missing", "unauthorized", request);
+        }
+
         List<FieldError> fieldErrors = ex.getConstraintViolations().stream()
                 .map(violation -> FieldError.builder()
                         .field(violation.getPropertyPath().toString())
