@@ -38,8 +38,11 @@ public class AuthService {
     @Value("${app.jwt.refresh-token-expiry}")
     private long refreshTokenExpirySeconds;
 
+    public record LoginResult(String accessToken, String rawRefreshToken, UserResponse user) {}
+    public record RefreshResult(String accessToken, String newRawRefreshToken) {}
+
     @Transactional
-    public LoginResponse login(LoginRequest request) {
+    public LoginResult login(LoginRequest request) {
         validationService.requireNotBlank(request.getEmail(), "email");
         validationService.requireValidEmail(request.getEmail());
         validationService.requireNotBlank(request.getPassword(), "password");
@@ -56,16 +59,16 @@ public class AuthService {
 
         saveRefreshToken(user, refreshToken);
 
-        return LoginResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .user(mapToUserResponse(user))
-                .build();
+        return new LoginResult(accessToken, refreshToken, mapToUserResponse(user));
     }
 
     @Transactional
-    public RefreshResponse refresh(RefreshRequest request) {
-        String tokenHash = jwtService.hashToken(request.getRefreshToken());
+    public RefreshResult refresh(String rawRefreshToken) {
+        if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
+            throw new BadCredentialsException("Refresh token is missing");
+        }
+
+        String tokenHash = jwtService.hashToken(rawRefreshToken);
         RefreshToken storedToken = refreshTokenRepository.findByTokenHash(tokenHash)
                 .orElseThrow(() -> new BadCredentialsException("Invalid refresh token"));
 
@@ -83,15 +86,16 @@ public class AuthService {
 
         saveRefreshToken(user, refreshToken);
 
-        return RefreshResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .build();
+        return new RefreshResult(accessToken, refreshToken);
     }
 
     @Transactional
-    public void logout(RefreshRequest request) {
-        String tokenHash = jwtService.hashToken(request.getRefreshToken());
+    public void logout(String rawRefreshToken) {
+        if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
+            return;
+        }
+
+        String tokenHash = jwtService.hashToken(rawRefreshToken);
         refreshTokenRepository.findByTokenHash(tokenHash).ifPresent(token -> {
             token.setRevokedAt(Instant.now());
             refreshTokenRepository.save(token);
@@ -120,7 +124,7 @@ public class AuthService {
     }
 
     @Transactional
-    public LoginResponse acceptInvitation(String token, AcceptInvitationRequest request) {
+    public LoginResult acceptInvitation(String token, AcceptInvitationRequest request) {
         validationService.requireNotBlank(request.getFirstName(), "firstName");
         validationService.requireMaxLength(request.getFirstName(), "firstName", 100);
         validationService.requireNotBlank(request.getLastName(), "lastName");
@@ -152,11 +156,7 @@ public class AuthService {
 
         saveRefreshToken(user, refreshToken);
 
-        return LoginResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .user(mapToUserResponse(user))
-                .build();
+        return new LoginResult(accessToken, refreshToken, mapToUserResponse(user));
     }
 
     private void saveRefreshToken(User user, String rawToken) {
