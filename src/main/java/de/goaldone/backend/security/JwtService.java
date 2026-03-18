@@ -1,11 +1,12 @@
 package de.goaldone.backend.security;
 
+import de.goaldone.backend.config.AppProperties;
 import de.goaldone.backend.entity.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
-import org.springframework.beans.factory.annotation.Value;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
@@ -17,24 +18,20 @@ import java.util.HexFormat;
 import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
 public class JwtService {
 
-    @Value("${app.jwt.secret}")
-    private String secret;
-
-    @Value("${app.jwt.access-token-expiry}")
-    private long accessTokenExpirySeconds;
-
+    private final AppProperties appProperties;
     private SecretKey signingKey;
 
     @PostConstruct
     protected void init() {
-        this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        this.signingKey = Keys.hmacShaKeyFor(appProperties.getJwt().getSecret().getBytes(StandardCharsets.UTF_8));
     }
 
     public String generateAccessToken(User user) {
         Date now = new Date();
-        Date expiry = new Date(now.getTime() + (accessTokenExpirySeconds * 1000));
+        Date expiry = new Date(now.getTime() + (appProperties.getJwt().getAccessTokenExpiry() * 1000));
 
         return Jwts.builder()
                 .subject(user.getId().toString())
