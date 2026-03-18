@@ -17,15 +17,26 @@ public class AppProperties {
     private String frontendUrl;
 
     private final Mail mail = new Mail();
+    private final Jwt jwt = new Jwt();
 
     @Data
     public static class Mail {
         @NotBlank
         private String from;
-        
-        // These can be derived from frontendUrl in the service, 
+
+        // These can be derived from frontendUrl in the service,
         // but we can also keep them configurable if we want full flexibility.
         private String invitationPath = "/auth/accept-invitation";
         private String passwordResetPath = "/auth/reset-password";
+    }
+
+    @Data
+    public static class Jwt {
+        @NotBlank
+        private String secret;
+        private long accessTokenExpiry;
+        private long refreshTokenExpiry;
+        private boolean cookieSecure = true;
+        private String cookieSameSite = "Strict";
     }
 }

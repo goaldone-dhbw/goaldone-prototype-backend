@@ -1,6 +1,7 @@
 package de.goaldone.backend.controller;
 
 import de.goaldone.backend.api.AuthApi;
+import de.goaldone.backend.config.AppProperties;
 import de.goaldone.backend.model.*;
 import de.goaldone.backend.service.AuthService;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ import java.time.Duration;
 public class AuthController implements AuthApi {
 
     private final AuthService authService;
+    private final AppProperties appProperties;
 
     @Override
     public ResponseEntity<LoginResponse> login(LoginRequest loginRequest) {
@@ -93,8 +95,8 @@ public class AuthController implements AuthApi {
     private ResponseCookie createRefreshTokenCookie(String token, Duration maxAge) {
         return ResponseCookie.from("refresh_token", token)
                 .httpOnly(true)
-                .secure(true) // Set to true for production, browser might ignore it on http/localhost if not handled
-                .sameSite("Strict")
+                .secure(appProperties.getJwt().isCookieSecure())
+                .sameSite(appProperties.getJwt().getCookieSameSite())
                 .path("/api/v1/auth")
                 .maxAge(maxAge)
                 .build();
