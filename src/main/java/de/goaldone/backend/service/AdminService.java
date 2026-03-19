@@ -96,6 +96,22 @@ public class AdminService {
         return mapToUserResponse(user);
     }
 
+    @Transactional
+    public void deleteSuperAdmin(UUID superAdminId, UUID currentUserId) {
+        if (superAdminId.equals(currentUserId)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "super-admin-cannot-delete-self");
+        }
+
+        User user = userRepository.findById(superAdminId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        if (user.getRole() != Role.SUPER_ADMIN) {
+             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "user-is-not-a-super-admin");
+        }
+
+        userRepository.delete(user);
+    }
+
     private OrganizationResponse mapToOrganizationResponse(Organization org) {
         return OrganizationResponse.builder()
                 .id(org.getId())

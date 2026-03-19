@@ -75,6 +75,13 @@ public class OrganizationService {
             throw new AccessDeniedException("Member does not belong to your organization");
         }
 
+        if (user.getRole() == de.goaldone.backend.entity.enums.Role.ADMIN) {
+            long adminCount = userRepository.countByOrganizationIdAndRole(orgId, de.goaldone.backend.entity.enums.Role.ADMIN);
+            if (adminCount <= 1) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "last-admin-cannot-be-removed");
+            }
+        }
+
         userRepository.delete(user);
     }
 

@@ -40,6 +40,20 @@ public class UserService {
 
     @Transactional
     public void deleteMyAccount(UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        if (user.getRole() == de.goaldone.backend.entity.enums.Role.SUPER_ADMIN) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "super-admin-cannot-delete-self");
+        }
+
+        if (user.getRole() == de.goaldone.backend.entity.enums.Role.ADMIN) {
+            long adminCount = userRepository.countByOrganizationIdAndRole(user.getOrganization().getId(), de.goaldone.backend.entity.enums.Role.ADMIN);
+            if (adminCount <= 1) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "last-admin-cannot-delete-self");
+            }
+        }
+
         userRepository.deleteById(userId);
     }
 

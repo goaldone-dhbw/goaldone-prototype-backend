@@ -19,7 +19,7 @@ import java.util.UUID;
 @RestController
 @RequiredArgsConstructor
 @PreAuthorize("hasRole('SUPER_ADMIN')")
-public class AdminController implements AdminApi {
+public class AdminController extends BaseController implements AdminApi {
 
     private final AdminService adminService;
 
@@ -43,5 +43,11 @@ public class AdminController implements AdminApi {
     @Override
     public ResponseEntity<UserResponse> addSuperAdmin(AddSuperAdminRequest addSuperAdminRequest) {
         return ResponseEntity.ok(adminService.addSuperAdmin(addSuperAdminRequest.getEmail()));
+    }
+
+    @Override
+    public ResponseEntity<Void> deleteSuperAdmin(UUID superAdminId) {
+        adminService.deleteSuperAdmin(superAdminId, getCurrentUserId());
+        return ResponseEntity.noContent().build();
     }
 }

@@ -1,6 +1,7 @@
 package de.goaldone.backend.repository;
 
 import de.goaldone.backend.entity.User;
+import de.goaldone.backend.entity.enums.Role;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,4 +15,5 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByEmail(String email);
     boolean existsByEmail(String email);
     Page<User> findByOrganizationId(UUID organizationId, Pageable pageable);
+    long countByOrganizationIdAndRole(UUID organizationId, Role role);
 }
