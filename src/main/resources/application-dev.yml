@@ -29,5 +29,8 @@ spring:
 
 app:
   frontend-url: http://localhost:4200
+  jwt:
+    cookie-secure: false
+    cookie-same-site: Lax
   cors:
-    allowed-origins: "*"
+    allowed-origins: "http://localhost:4200"
