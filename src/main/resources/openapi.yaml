@@ -312,12 +312,43 @@ paths:
     delete:
       tags: [users]
       summary: Eigenen Account löschen (Hard Delete)
+      description: |
+        Löscht den eigenen Account inklusive aller zugehörigen Daten (Tasks, Breaks, Schedule-Einträge).
+
+        **Einschränkungen:**
+        - `SUPER_ADMIN` kann sich nicht selbst löschen (`403 Forbidden`).
+        - Ein `ADMIN`, der der letzte Admin seiner Organisation ist, kann sich nicht selbst löschen (`409 Conflict`).
+          Es muss mindestens ein weiterer Admin in der Organisation verbleiben.
       operationId: deleteMyAccount
       responses:
         '204':
-          description: Account und alle zugehörigen Daten gelöscht
+          description: Account und alle zugehörigen Daten gelöscht (Tasks, Breaks, Schedule-Einträge, Refresh-Tokens)
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: SUPER_ADMIN darf sich nicht selbst löschen
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: "https://goaldone.de/problems/forbidden"
+                title: "Forbidden"
+                status: 403
+                detail: "super-admin-cannot-delete-self"
+                instance: "/api/v1/users/me"
+        '409':
+          description: Letzter Admin der Organisation kann sich nicht selbst löschen
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: "https://goaldone.de/problems/conflict"
+                title: "Conflict"
+                status: 409
+                detail: "last-admin-cannot-delete-self"
+                instance: "/api/v1/users/me"
 
   # ════════════════════════════════════════════
   # ORGANIZATION (Admin)
@@ -394,20 +425,43 @@ paths:
   /organizations/me/members/{userId}:
     delete:
       tags: [members]
-      summary: Mitglied aus der Organisation entfernen
-      description: Nur für Nutzer mit Rolle ADMIN oder höher.
+      summary: Mitglied aus der Organisation entfernen (Hard Delete)
+      description: |
+        Entfernt ein Mitglied vollständig aus dem System.
+        Durch Datenbank-Kaskaden werden dabei automatisch gelöscht:
+        - Alle Tasks des Mitglieds
+        - Alle Breaks des Mitglieds
+        - Alle Schedule-Einträge des Mitglieds
+        - Alle Refresh-Tokens des Mitglieds
+
+        Nur für Nutzer mit Rolle `ADMIN` oder höher.
+
+        **Einschränkung:** Der letzte `ADMIN` einer Organisation kann nicht entfernt werden (`409 Conflict`).
+        Es muss mindestens ein Admin in der Organisation verbleiben.
       operationId: removeMember
       parameters:
         - $ref: '#/components/parameters/UserIdParam'
       responses:
         '204':
-          description: Mitglied entfernt
+          description: Mitglied und alle zugehörigen Daten gelöscht
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: Letzter Admin der Organisation kann nicht entfernt werden
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: "https://goaldone.de/problems/conflict"
+                title: "Conflict"
+                status: 409
+                detail: "last-admin-cannot-be-removed"
+                instance: "/api/v1/organizations/me/members/123e4567-e89b-12d3-a456-426614174000"
 
   /organizations/me/members/{userId}/role:
     patch:
@@ -572,6 +626,9 @@ paths:
         Erstellt einen neuen Task für den eingeloggten Nutzer.
         Wenn `estimatedDurationMinutes` > 480 (8h), wird empfohlen, den Task zu splitten
         – dies kann entweder clientseitig angeboten oder serverseitig automatisch erfolgen.
+
+        **Einschränkung:** `SUPER_ADMIN`-Nutzer dürfen keine Tasks erstellen (`403 Forbidden`).
+        Tasks können ausschließlich von `USER`- und `ADMIN`-Nutzern angelegt werden.
       operationId: createTask
       requestBody:
         required: true
@@ -590,6 +647,18 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: SUPER_ADMIN darf keine Tasks erstellen
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: "https://goaldone.de/problems/forbidden"
+                title: "Forbidden"
+                status: 403
+                detail: "super-admin-cannot-create-tasks"
+                instance: "/api/v1/tasks"
 
   /tasks/{taskId}:
     get:
@@ -933,6 +1002,18 @@ paths:
     delete:
       tags: [admin]
       summary: Organisation löschen (Super-Admin, Hard Delete)
+      description: |
+        Löscht eine Organisation vollständig und unwiderruflich.
+
+        **Kaskadierendes Löschen** – folgende Daten werden automatisch mitgelöscht:
+        - Alle Mitglieder der Organisation (User-Accounts)
+        - Alle Tasks aller Mitglieder
+        - Alle Breaks aller Mitglieder
+        - Alle Schedule-Einträge aller Mitglieder
+        - Alle offenen Einladungen der Organisation
+        - Alle Refresh-Tokens der Mitglieder
+
+        Nur für Nutzer mit Rolle `SUPER_ADMIN`.
       operationId: deleteOrganization
       parameters:
         - name: orgId
@@ -943,7 +1024,7 @@ paths:
             format: uuid
       responses:
         '204':
-          description: Organisation und alle zugehörigen Daten gelöscht
+          description: Organisation und alle zugehörigen Daten (Mitglieder, Tasks, Breaks, Schedules) gelöscht
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -976,6 +1057,46 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/super-admins/{superAdminId}:
+    delete:
+      tags: [admin]
+      summary: Super-Admin entfernen (Super-Admin, Hard Delete)
+      description: |
+        Löscht einen anderen Super-Admin vollständig aus dem System inklusive aller zugehörigen Daten.
+
+        **Einschränkung:** Ein Super-Admin kann sich nicht selbst löschen.
+        Wenn `superAdminId` der eigenen `sub`-Claim aus dem JWT entspricht, wird der Request mit `403 Forbidden` abgelehnt.
+
+        Nur für Nutzer mit Rolle `SUPER_ADMIN`.
+      operationId: deleteSuperAdmin
+      parameters:
+        - name: superAdminId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: UUID des zu löschenden Super-Admins (darf nicht die eigene UUID sein)
+      responses:
+        '204':
+          description: Super-Admin und alle zugehörigen Daten erfolgreich gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Keine Berechtigung – entweder unzureichende Rolle oder Selbstlöschungsversuch
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: "https://goaldone.de/problems/forbidden"
+                title: "Forbidden"
+                status: 403
+                detail: "super-admin-cannot-delete-self"
+                instance: "/api/v1/admin/super-admins/123e4567-e89b-12d3-a456-426614174000"
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -1099,6 +1220,19 @@ components:
             status: 404
             detail: "Task mit ID 'abc123' wurde nicht gefunden."
             instance: "/api/v1/tasks/abc123"
+
+    Conflict:
+      description: Konflikt – Geschäftsregel verhindert die Operation
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: "https://goaldone.de/problems/conflict"
+            title: "Conflict"
+            status: 409
+            detail: "last-admin-cannot-delete-self"
+            instance: "/api/v1/users/me"
 
   schemas:
 

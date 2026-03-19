@@ -125,6 +125,15 @@ public class GlobalExceptionHandler {
         return createProblemResponse(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), "conflict", request);
     }
 
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ProblemDetail> handleResponseStatus(org.springframework.web.server.ResponseStatusException ex, HttpServletRequest request) {
+        String detail = ex.getReason() != null ? ex.getReason() : ex.getMessage();
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        if (status == null) status = HttpStatus.INTERNAL_SERVER_ERROR;
+        
+        return createProblemResponse(status, status.getReasonPhrase(), detail, status.name().toLowerCase().replace("_", "-"), request);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ProblemDetail> handleGeneralException(Exception ex, HttpServletRequest request) {
         log.error("Unhandled exception occurred", ex);

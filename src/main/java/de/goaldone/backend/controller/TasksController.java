@@ -33,7 +33,14 @@ public class TasksController extends BaseController implements TasksApi {
     }
 
     @Override
+    @org.springframework.security.access.prepost.PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<TaskResponse> createTask(CreateTaskRequest createTaskRequest) {
+        Object details = SecurityContextHolder.getContext().getAuthentication().getDetails();
+        if (details instanceof GoaldoneUserDetails userDetails) {
+            if (userDetails.getRole() == de.goaldone.backend.entity.enums.Role.SUPER_ADMIN) {
+                throw new org.springframework.web.server.ResponseStatusException(HttpStatus.FORBIDDEN, "super-admin-cannot-create-tasks");
+            }
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(taskService.createTask(createTaskRequest, getCurrentUserId(), getCurrentOrgId()));
     }
