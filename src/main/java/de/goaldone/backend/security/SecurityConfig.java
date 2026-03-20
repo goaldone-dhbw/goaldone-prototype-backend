@@ -44,6 +44,12 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> {
                     if (activeProfile.contains("dev")) {
                         auth.requestMatchers("/dev/**").permitAll();
+                        auth.requestMatchers("/h2-console/**").permitAll(); // neu
+                        try {
+                            http.headers(headers -> headers.frameOptions(frame -> frame.disable())); // neu
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
                     }
                     auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()

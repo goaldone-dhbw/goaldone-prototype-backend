@@ -5,6 +5,8 @@ import de.goaldone.backend.model.AddSuperAdminRequest;
 import de.goaldone.backend.model.CreateOrganizationRequest;
 import de.goaldone.backend.model.OrganizationPage;
 import de.goaldone.backend.model.OrganizationResponse;
+import de.goaldone.backend.model.SuperAdminInvitationResponse;
+import de.goaldone.backend.model.SuperAdminPage;
 import de.goaldone.backend.model.UserResponse;
 import de.goaldone.backend.service.AdminService;
 import lombok.RequiredArgsConstructor;
@@ -41,8 +43,14 @@ public class AdminController extends BaseController implements AdminApi {
     }
 
     @Override
-    public ResponseEntity<UserResponse> addSuperAdmin(AddSuperAdminRequest addSuperAdminRequest) {
-        return ResponseEntity.ok(adminService.addSuperAdmin(addSuperAdminRequest.getEmail()));
+    public ResponseEntity<SuperAdminPage> listSuperAdmins(Integer page, Integer size) {
+        return ResponseEntity.ok(adminService.listSuperAdmins(PageRequest.of(page, size)));
+    }
+
+    @Override
+    public ResponseEntity<SuperAdminInvitationResponse> addSuperAdmin(AddSuperAdminRequest addSuperAdminRequest) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(adminService.addSuperAdmin(addSuperAdminRequest.getEmail()));
     }
 
     @Override
