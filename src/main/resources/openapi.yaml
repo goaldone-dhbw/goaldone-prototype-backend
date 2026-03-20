@@ -221,6 +221,39 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /auth/invitations/{token}:
+    get:
+      tags: [auth, invitations]
+      summary: Informationen zu einem Einladungstoken abrufen
+      description: |
+        Öffentlicher Endpunkt (kein JWT erforderlich).
+        Gibt die E-Mail-Adresse zurück, die mit dem Token verknüpft ist.
+        Wird genutzt, um das Registrierungsformular vorauszufüllen.
+      security: []
+      operationId: getInvitationInfo
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: UUID-Token aus dem Einladungslink
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token gültig, E-Mail wird zurückgegeben
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationTokenInfoResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: Einladungslink abgelaufen oder bereits verwendet
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
   /auth/invitations/{token}/accept:
     post:
       tags: [auth, invitations]
@@ -1374,6 +1407,15 @@ components:
           format: password
           minLength: 8
       required: [firstName, lastName, password]
+
+    InvitationTokenInfoResponse:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: "max.mustermann@firma.de"
+      required: [email]
 
     # ── User ──────────────────────────────────────────────
 

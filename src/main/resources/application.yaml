@@ -28,7 +28,7 @@ app:
     max-age: 3600
   mail:
     from: ${EMAIL_FROM:noreply@goaldone.de}
-    invitation-path: /auth/accept-invitation
+    invitation-path: /invitations
     password-reset-path: /auth/reset-password
   scheduler:
     cleanup-cron: "0 0 2 * * *"

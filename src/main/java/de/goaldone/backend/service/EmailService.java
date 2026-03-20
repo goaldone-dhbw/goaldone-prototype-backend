@@ -18,7 +18,7 @@ public class EmailService {
     public void sendInvitationEmail(String toEmail, String token, String organizationName) {
         String invitationUrl = appProperties.getFrontendUrl() +
                 appProperties.getMail().getInvitationPath() +
-                "?token=" + token;
+                "/" + token;
 
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(appProperties.getMail().getFrom());
