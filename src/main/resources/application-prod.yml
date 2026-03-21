@@ -27,6 +27,7 @@ spring:
       mail.smtp.starttls.enable: true
       mail.smtp.starttls.required: true
       mail.smtp.ssl.trust: ${SPRING_MAIL_SSL_TRUST:mail.fampopprol.me}
+      mail.smtp.ssl.checkserveridentity: ${SPRING_MAIL_SSL_CHECK_IDENTITY:true}
       mail.smtp.connectiontimeout: 5000
       mail.smtp.timeout: 5000
       mail.smtp.writetimeout: 5000
