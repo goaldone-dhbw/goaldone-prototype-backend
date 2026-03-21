@@ -26,7 +26,7 @@ public class AppProperties {
 
         // These can be derived from frontendUrl in the service,
         // but we can also keep them configurable if we want full flexibility.
-        private String invitationPath = "/auth/accept-invitation";
+        private String invitationPath = "/invitations";
         private String passwordResetPath = "/auth/reset-password";
     }
 

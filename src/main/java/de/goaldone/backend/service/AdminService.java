@@ -86,14 +86,54 @@ public class AdminService {
     }
 
     @Transactional
-    public UserResponse addSuperAdmin(String email) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    public SuperAdminInvitationResponse addSuperAdmin(String email) {
+        if (userRepository.existsByEmail(email)) {
+            throw new ConflictException("User with this email already exists");
+        }
 
-        user.setRole(Role.SUPER_ADMIN);
-        userRepository.save(user);
+        // Check if a super admin invitation already exists (orgId is null for super admins)
+        if (invitationRepository.existsByEmailAndOrganizationId(email, null)) {
+            throw new ConflictException("super-admin-invitation-already-exists");
+        }
 
-        return mapToUserResponse(user);
+        Invitation invitation = Invitation.builder()
+                .email(email)
+                .organization(null)
+                .token(UUID.randomUUID().toString())
+                .role(Role.SUPER_ADMIN)
+                .expiresAt(Instant.now().plusSeconds(48 * 3600)) // 48 hours
+                .build();
+        invitationRepository.save(invitation);
+
+        log.info("Super-Admin invited: {}. Token: {}", email, invitation.getToken());
+
+        try {
+            emailService.sendInvitationEmail(invitation.getEmail(), invitation.getToken(), "Goaldone Platform");
+        } catch (Exception e) {
+            log.error("Failed to send super-admin invitation email to {}: {}", email, e.getMessage());
+        }
+
+        return mapToSuperAdminInvitationResponse(invitation);
+    }
+
+    public SuperAdminPage listSuperAdmins(Pageable pageable) {
+        Page<User> superAdmins = userRepository.findAllByRole(Role.SUPER_ADMIN, pageable);
+        return SuperAdminPage.builder()
+                .page(superAdmins.getNumber())
+                .size(superAdmins.getSize())
+                .totalElements((int) superAdmins.getTotalElements())
+                .totalPages(superAdmins.getTotalPages())
+                .content(superAdmins.getContent().stream().map(this::mapToUserResponse).toList())
+                .build();
+    }
+
+    private SuperAdminInvitationResponse mapToSuperAdminInvitationResponse(Invitation invitation) {
+        return SuperAdminInvitationResponse.builder()
+                .id(invitation.getId())
+                .email(invitation.getEmail())
+                .expiresAt(OffsetDateTime.ofInstant(invitation.getExpiresAt(), ZoneOffset.UTC))
+                .createdAt(OffsetDateTime.ofInstant(invitation.getCreatedAt(), ZoneOffset.UTC))
+                .build();
     }
 
     @Transactional

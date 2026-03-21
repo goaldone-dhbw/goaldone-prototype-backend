@@ -77,6 +77,11 @@ public class AuthController implements AuthApi {
     }
 
     @Override
+    public ResponseEntity<InvitationTokenInfoResponse> getInvitationInfo(String token) {
+        return ResponseEntity.ok(authService.getInvitationInfo(token));
+    }
+
+    @Override
     public ResponseEntity<LoginResponse> acceptInvitation(String token, AcceptInvitationRequest acceptInvitationRequest) {
         AuthService.LoginResult result = authService.acceptInvitation(token, acceptInvitationRequest);
 

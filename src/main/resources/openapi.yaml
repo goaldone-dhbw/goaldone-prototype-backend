@@ -221,6 +221,39 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /auth/invitations/{token}:
+    get:
+      tags: [auth, invitations]
+      summary: Informationen zu einem Einladungstoken abrufen
+      description: |
+        Öffentlicher Endpunkt (kein JWT erforderlich).
+        Gibt die E-Mail-Adresse zurück, die mit dem Token verknüpft ist.
+        Wird genutzt, um das Registrierungsformular vorauszufüllen.
+      security: []
+      operationId: getInvitationInfo
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: UUID-Token aus dem Einladungslink
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token gültig, E-Mail wird zurückgegeben
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvitationTokenInfoResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: Einladungslink abgelaufen oder bereits verwendet
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
   /auth/invitations/{token}/accept:
     post:
       tags: [auth, invitations]
@@ -1033,10 +1066,32 @@ paths:
           $ref: '#/components/responses/NotFound'
 
   /admin/super-admins:
+    get:
+      tags: [admin]
+      summary: Alle Super-Admins auflisten (Super-Admin)
+      operationId: listSuperAdmins
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: Paginierte Liste der Super-Admins
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuperAdminPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
     post:
       tags: [admin]
-      summary: Neuen Super-Admin hinzufügen (Super-Admin)
-      description: Erteilt einem bestehenden Nutzer die SUPER_ADMIN Rolle.
+      summary: Neuen Super-Admin einladen (Super-Admin)
+      description: |
+        Sendet eine Einladungs-E-Mail an die angegebene Adresse.
+        Der Eingeladene erhält die Rolle SUPER_ADMIN ohne Organisationszugehörigkeit.
+        Kein bestehender Account erforderlich.
       operationId: addSuperAdmin
       requestBody:
         required: true
@@ -1045,20 +1100,30 @@ paths:
             schema:
               $ref: '#/components/schemas/AddSuperAdminRequest'
       responses:
-        '200':
-          description: Nutzer ist jetzt Super-Admin
+        '201':
+          description: Einladung erstellt und E-Mail versendet
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserResponse'
+                $ref: '#/components/schemas/SuperAdminInvitationResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Eine offene Einladung oder ein Account für diese E-Mail existiert bereits
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: "https://goaldone.de/problems/conflict"
+                title: "Conflict"
+                status: 409
+                detail: "super-admin-invitation-already-exists"
+                instance: "/api/v1/admin/super-admins"
 
   /admin/super-admins/{superAdminId}:
     delete:
@@ -1342,6 +1407,15 @@ components:
           format: password
           minLength: 8
       required: [firstName, lastName, password]
+
+    InvitationTokenInfoResponse:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: "max.mustermann@firma.de"
+      required: [email]
 
     # ── User ──────────────────────────────────────────────
 
@@ -1803,8 +1877,37 @@ components:
         email:
           type: string
           format: email
-          description: "E-Mail eines bestehenden Nutzers, der Super-Admin werden soll"
+          description: "E-Mail-Adresse der einzuladenden Person. Es wird eine Einladungs-E-Mail verschickt – kein bestehender Account erforderlich."
       required: [email]
+
+    SuperAdminInvitationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        expiresAt:
+          type: string
+          format: date-time
+          description: "Ablaufzeitpunkt des Einladungslinks (48h nach Erstellung)"
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, email, expiresAt, createdAt]
+
+    SuperAdminPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMetadata'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/UserResponse'
+          required: [content]
 
     # ── Pagination ────────────────────────────────────────
 

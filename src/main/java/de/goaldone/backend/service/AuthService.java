@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -121,6 +122,20 @@ public class AuthService {
 
         // Revoke all existing refresh tokens
         refreshTokenRepository.deleteByUserIdAndRevokedAtIsNull(user.getId());
+    }
+
+    @Transactional(readOnly = true)
+    public InvitationTokenInfoResponse getInvitationInfo(String token) {
+        Invitation invitation = invitationRepository.findByToken(token)
+                .orElseThrow(() -> new ResourceNotFoundException("Invitation not found"));
+
+        if (invitation.getExpiresAt().isBefore(Instant.now())) {
+            throw new GoneException("Invitation expired");
+        }
+
+        return InvitationTokenInfoResponse.builder()
+                .email(invitation.getEmail())
+                .build();
     }
 
     @Transactional

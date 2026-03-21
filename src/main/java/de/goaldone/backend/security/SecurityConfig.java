@@ -44,11 +44,18 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> {
                     if (activeProfile.contains("dev")) {
                         auth.requestMatchers("/dev/**").permitAll();
+                        auth.requestMatchers("/h2-console/**").permitAll(); // neu
+                        try {
+                            http.headers(headers -> headers.frameOptions(frame -> frame.disable())); // neu
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
                     }
                     auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/logout").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/auth/invitations/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/invitations/*/accept").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .anyRequest().authenticated();
