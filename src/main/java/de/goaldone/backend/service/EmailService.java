@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -15,22 +16,29 @@ public class EmailService {
     private final JavaMailSender mailSender;
     private final AppProperties appProperties;
 
+    @Async
     public void sendInvitationEmail(String toEmail, String token, String organizationName) {
+        log.info("Starting to send invitation email to {} for organization {}", toEmail, organizationName);
         String invitationUrl = appProperties.getFrontendUrl() +
                 appProperties.getMail().getInvitationPath() +
                 "/" + token;
 
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(appProperties.getMail().getFrom());
-        message.setTo(toEmail);
-        message.setSubject("You have been invited to join " + organizationName + " on Goaldone");
-        message.setText("You have been invited to join " + organizationName + ".\n" +
-                "Click the link below to create your account:\n" +
-                invitationUrl + "\n" +
-                "This link expires in 48 hours.");
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(appProperties.getMail().getFrom());
+            message.setTo(toEmail);
+            message.setSubject("You have been invited to join " + organizationName + " on Goaldone");
+            message.setText("You have been invited to join " + organizationName + ".\n" +
+                    "Click the link below to create your account:\n" +
+                    invitationUrl + "\n" +
+                    "This link expires in 48 hours.");
 
-        mailSender.send(message);
-        log.info("Invitation email sent to {} for organization {}", toEmail, organizationName);
+            mailSender.send(message);
+            log.info("Invitation email successfully sent to {} for organization {}", toEmail, organizationName);
+        } catch (Exception e) {
+            log.error("CRITICAL: Failed to send invitation email to {}. Link would have been: {}. Error: {}", 
+                    toEmail, invitationUrl, e.getMessage(), e);
+        }
     }
 
     public void sendPasswordResetEmail(String toEmail, String resetToken) {

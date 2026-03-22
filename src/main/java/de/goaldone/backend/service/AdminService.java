@@ -66,13 +66,10 @@ public class AdminService {
                 .build();
         invitationRepository.save(invitation);
 
-        log.info("Organization created: {}. Admin invitation token: {}", org.getName(), invitation.getToken());
+        log.info("Organization created in DB: {}. Admin invitation token: {}", org.getName(), invitation.getToken());
 
-        try {
-            emailService.sendInvitationEmail(invitation.getEmail(), invitation.getToken(), org.getName());
-        } catch (Exception e) {
-            log.error("Failed to send initial admin invitation email to {}: {}", request.getAdminEmail(), e.getMessage());
-        }
+        // Call async service - this should return immediately
+        emailService.sendInvitationEmail(invitation.getEmail(), invitation.getToken(), org.getName());
 
         return mapToOrganizationResponse(org);
     }
@@ -105,13 +102,9 @@ public class AdminService {
                 .build();
         invitationRepository.save(invitation);
 
-        log.info("Super-Admin invited: {}. Token: {}", email, invitation.getToken());
+        log.info("Super-Admin invited in DB: {}. Token: {}", email, invitation.getToken());
 
-        try {
-            emailService.sendInvitationEmail(invitation.getEmail(), invitation.getToken(), "Goaldone Platform");
-        } catch (Exception e) {
-            log.error("Failed to send super-admin invitation email to {}: {}", email, e.getMessage());
-        }
+        emailService.sendInvitationEmail(invitation.getEmail(), invitation.getToken(), "Goaldone Platform");
 
         return mapToSuperAdminInvitationResponse(invitation);
     }
