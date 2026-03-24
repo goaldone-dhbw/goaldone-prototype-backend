@@ -37,3 +37,8 @@ app:
     cookie-same-site: Lax
   cors:
     allowed-origins: "http://localhost:4200"
+
+management:
+  health:
+    mail:
+      enabled: false
