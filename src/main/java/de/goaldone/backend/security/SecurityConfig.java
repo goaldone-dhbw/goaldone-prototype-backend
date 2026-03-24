@@ -52,27 +52,28 @@ public class SecurityConfig {
                         }
                     }
                     auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/auth/refresh").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/auth/logout").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/auth/invitations/*").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/auth/invitations/*/accept").permitAll()
-                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
-                        .anyRequest().authenticated();
+                            .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
+                            .requestMatchers(HttpMethod.POST, "/auth/refresh").permitAll()
+                            .requestMatchers(HttpMethod.POST, "/auth/logout").permitAll()
+                            .requestMatchers(HttpMethod.GET, "/auth/invitations/*").permitAll()
+                            .requestMatchers(HttpMethod.POST, "/auth/invitations/*/accept").permitAll()
+                            .requestMatchers("/actuator/health", "/actuator/info", "/actuator/metrics").permitAll()
+                            .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
+                            .anyRequest().authenticated();
                 })
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint((request, response, authException) -> {
                             response.setStatus(HttpStatus.UNAUTHORIZED.value());
                             response.setContentType("application/problem+json");
                             response.getWriter().write("""
-                                {
-                                  "type": "https://goaldone.de/problems/unauthorized",
-                                  "title": "Unauthorized",
-                                  "status": 401,
-                                  "detail": "Full authentication is required to access this resource. Did you forget the Bearer token?",
-                                  "instance": "%s"
-                                }
-                                """.formatted(request.getRequestURI()));
+                                    {
+                                      "type": "https://goaldone.de/problems/unauthorized",
+                                      "title": "Unauthorized",
+                                      "status": 401,
+                                      "detail": "Full authentication is required to access this resource. Did you forget the Bearer token?",
+                                      "instance": "%s"
+                                    }
+                                    """.formatted(request.getRequestURI()));
                         })
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
