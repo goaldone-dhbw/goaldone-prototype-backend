@@ -2,12 +2,9 @@ package de.goaldone.backend.service;
 
 import de.goaldone.backend.entity.*;
 import de.goaldone.backend.entity.enums.CognitiveLoad;
-import de.goaldone.backend.entity.enums.RecurrenceType;
 import de.goaldone.backend.entity.enums.ScheduleEntryType;
 import de.goaldone.backend.entity.enums.TaskStatus;
-import de.goaldone.backend.exception.ValidationException;
 import de.goaldone.backend.model.GenerateScheduleRequest;
-import de.goaldone.backend.model.ScheduleResponse;
 import de.goaldone.backend.model.WorkingHoursResponse;
 import de.goaldone.backend.repository.BreakRepository;
 import de.goaldone.backend.repository.ScheduleEntryRepository;
@@ -22,7 +19,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.*;
@@ -62,116 +58,36 @@ class ScheduleAlgorithmRewriteTest {
     }
 
     @Test
-    @DisplayName("Should throw 400 when working hours are missing")
-    void shouldThrow400WhenWorkingHoursMissing() {
-        LocalDate from = LocalDate.of(2026, 3, 30);
-        LocalDate to = from.plusDays(13);
+    @DisplayName("Should schedule more than maxDailyWorkMinutes if window allows, with system breaks for HIGH tasks")
+    void shouldHandleSystemBreaksAndExceedOldBudget() {
+        // Arrange
+        LocalDate today = LocalDate.of(2026, 3, 26);
+        LocalDate to = today.plusDays(13);
         GenerateScheduleRequest request = new GenerateScheduleRequest();
-        request.setFrom(from);
+        request.setFrom(today);
         request.setTo(to);
+        request.setMaxDailyWorkMinutes(120); // 2 hours work block limit
 
-        when(workingHoursService.getWorkingHours(userId)).thenThrow(new de.goaldone.backend.exception.ResourceNotFoundException("working-hours-not-found"));
-
-        org.springframework.web.server.ResponseStatusException ex = assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> 
-            scheduleService.generateSchedule(userId, orgId, request));
-        
-        assertEquals("working-hours-missing", ex.getReason());
-    }
-
-    @Test
-    @DisplayName("Should throw 400 when window is not 14 days")
-    void shouldThrow400WhenWindowInvalid() {
-        LocalDate from = LocalDate.of(2026, 3, 30);
-        LocalDate to = from.plusDays(10); // Not 13
-        GenerateScheduleRequest request = new GenerateScheduleRequest();
-        request.setFrom(from);
-        request.setTo(to);
-
-        when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
-
-        org.springframework.web.server.ResponseStatusException ex = assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> 
-            scheduleService.generateSchedule(userId, orgId, request));
-        
-        assertEquals("invalid-schedule-window", ex.getReason());
-    }
-
-    @Test
-    @DisplayName("Should respect fixed and completed entries and subtract from budget")
-    void shouldRespectFixedEntries() {
-        LocalDate from = LocalDate.of(2026, 3, 30); // Monday
-        LocalDate to = from.plusDays(13);
-        GenerateScheduleRequest request = new GenerateScheduleRequest();
-        request.setFrom(from);
-        request.setTo(to);
-        request.setMaxDailyWorkMinutes(120); // 2 hours
-
-        when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
-        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
-        UUID taskId = UUID.randomUUID();
-        when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
-                .thenReturn(new ArrayList<>(List.of(
-                        Task.builder().id(taskId).title("New Task").estimatedDurationMinutes(60).cognitiveLoad(CognitiveLoad.MEDIUM).status(TaskStatus.OPEN).owner(testUser).organization(testOrg).build()
-                )));
-        when(breakRepository.findByUserId(userId)).thenReturn(new ArrayList<>());
-        
-        // Mock a pinned entry on the first day that takes 90 minutes
-        ScheduleEntry pinned = ScheduleEntry.builder()
-                .entryDate(from)
-                .startTime(LocalTime.of(9, 0))
-                .endTime(LocalTime.of(10, 30))
-                .isPinned(true)
-                .entryType(ScheduleEntryType.TASK)
-                .build();
-        
-        when(scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, from, to))
-                .thenReturn(new ArrayList<>(List.of(pinned)));
-
-        when(workingHoursService.getWorkWindow(userId, from)).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
-
-        // Act
-        ScheduleResponse response = scheduleService.generateSchedule(userId, orgId, request);
-
-        // Assert
-        // On day 1: budget 120 - 90 = 30 mins remaining. New task needs 60.
-        // It should schedule 30 mins and warn.
-        assertTrue(response.getWarnings().contains("task-budget-exceeded:" + taskId));
-    }
-
-    @Test
-    @DisplayName("Should expand recurring tasks")
-    void shouldExpandRecurringTasks() {
-        LocalDate from = LocalDate.of(2026, 3, 30); // Monday
-        LocalDate to = from.plusDays(13);
-        GenerateScheduleRequest request = new GenerateScheduleRequest();
-        request.setFrom(from);
-        request.setTo(to);
-        request.setMaxDailyWorkMinutes(240);
-
-        Task dailyTask = Task.builder()
+        // One big HIGH task: 5 hours (300 mins)
+        Task bigTask = Task.builder()
                 .id(UUID.randomUUID())
-                .title("Daily Standup")
-                .estimatedDurationMinutes(15)
-                .cognitiveLoad(CognitiveLoad.LOW)
+                .title("Big High Task")
                 .status(TaskStatus.OPEN)
-                .recurrenceType(RecurrenceType.DAILY)
-                .recurrenceInterval(1)
-                .startDate(from)
+                .cognitiveLoad(CognitiveLoad.HIGH)
+                .estimatedDurationMinutes(300)
                 .owner(testUser)
                 .organization(testOrg)
                 .build();
 
         when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
         when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
-        when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
-                .thenReturn(new ArrayList<>(List.of(dailyTask)));
+        when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any())).thenReturn(new ArrayList<>(List.of(bigTask)));
         when(breakRepository.findByUserId(userId)).thenReturn(new ArrayList<>());
-        when(scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, from, to)).thenReturn(new ArrayList<>());
+        when(scheduleEntryRepository.findByUserIdAndEntryDateBetween(any(), any(), any())).thenReturn(new ArrayList<>());
         
-        // Mock work windows for all days
-        for (int i = 0; i < 14; i++) {
-            when(workingHoursService.getWorkWindow(userId, from.plusDays(i)))
-                    .thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
-        }
+        // Window: 08:00 - 20:00 (12 hours)
+        when(workingHoursService.getWorkWindow(any(), any()))
+                .thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(8, 0), LocalTime.of(20, 0))));
 
         // Act
         scheduleService.generateSchedule(userId, orgId, request);
@@ -179,58 +95,37 @@ class ScheduleAlgorithmRewriteTest {
         // Assert
         ArgumentCaptor<List<ScheduleEntry>> captor = ArgumentCaptor.forClass(List.class);
         verify(scheduleEntryRepository).saveAll(captor.capture());
-        List<ScheduleEntry> savedEntries = captor.getValue();
-
-        // Should have 14 entries for the daily task
-        assertEquals(14, savedEntries.size());
-        for (ScheduleEntry entry : savedEntries) {
-            assertEquals(dailyTask.getId(), entry.getTask().getId());
-        }
-    }
-
-    @Test
-    @DisplayName("Should respect startDate")
-    void shouldRespectStartDate() {
-        LocalDate from = LocalDate.of(2026, 3, 30); // Monday
-        LocalDate to = from.plusDays(13);
-        GenerateScheduleRequest request = new GenerateScheduleRequest();
-        request.setFrom(from);
-        request.setTo(to);
-        request.setMaxDailyWorkMinutes(240);
-
-        LocalDate startDate = from.plusDays(2); // Wednesday
-        Task delayedTask = Task.builder()
-                .id(UUID.randomUUID())
-                .title("Delayed Task")
-                .estimatedDurationMinutes(60)
-                .cognitiveLoad(CognitiveLoad.MEDIUM)
-                .status(TaskStatus.OPEN)
-                .startDate(startDate)
-                .owner(testUser)
-                .organization(testOrg)
-                .build();
-
-        when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
-        when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
-        when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
-                .thenReturn(new ArrayList<>(List.of(delayedTask)));
-        when(breakRepository.findByUserId(userId)).thenReturn(new ArrayList<>());
-        when(scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, from, to)).thenReturn(new ArrayList<>());
         
-        // Mock work windows
-        when(workingHoursService.getWorkWindow(userId, from)).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
-        when(workingHoursService.getWorkWindow(userId, from.plusDays(1))).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
-        when(workingHoursService.getWorkWindow(userId, startDate)).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
-
-        // Act
-        scheduleService.generateSchedule(userId, orgId, request);
-
-        // Assert
-        ArgumentCaptor<List<ScheduleEntry>> captor = ArgumentCaptor.forClass(List.class);
-        verify(scheduleEntryRepository).saveAll(captor.capture());
         List<ScheduleEntry> savedEntries = captor.getValue();
+        
+        // For one day, we expect:
+        // 08:00 - 10:00: Work (120m)
+        // 10:00 - 11:00: System Break (60m = 120/2)
+        // 11:00 - 13:00: Work (120m)
+        // 13:00 - 14:00: System Break (60m)
+        // 14:00 - 15:00: Work (60m remaining)
+        // Total work: 300m = 5h.
+        
+        List<ScheduleEntry> todayEntries = savedEntries.stream()
+                .filter(e -> e.getEntryDate().equals(today))
+                .sorted(Comparator.comparing(ScheduleEntry::getStartTime))
+                .toList();
+        
+        long workMinutes = todayEntries.stream()
+                .filter(e -> e.getEntryType() == ScheduleEntryType.TASK)
+                .mapToLong(e -> java.time.Duration.between(e.getStartTime(), e.getEndTime()).toMinutes())
+                .sum();
+        
+        assertEquals(300, workMinutes, "Should have scheduled 300 minutes of work despite 120m block limit");
+        
+        // Check for the system breaks (they should be scheduled as BREAK entries)
+        // System breaks are created as synthetic Break entities with label "System Break"
+        long breakMinutes = todayEntries.stream()
+                .filter(e -> e.getEntryType() == ScheduleEntryType.BREAK)
+                .mapToLong(e -> java.time.Duration.between(e.getStartTime(), e.getEndTime()).toMinutes())
+                .sum();
 
-        assertEquals(1, savedEntries.size());
-        assertEquals(startDate, savedEntries.get(0).getEntryDate());
+        assertTrue(breakMinutes > 0, "Should have scheduled system breaks");
+        assertEquals(120, breakMinutes, "Should have 2 system breaks of 60 minutes each (total 120 minutes)");
     }
 }

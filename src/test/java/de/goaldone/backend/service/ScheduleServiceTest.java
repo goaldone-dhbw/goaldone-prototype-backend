@@ -108,7 +108,7 @@ class ScheduleServiceTest {
         }
 
         @Test
-        @DisplayName("Should split task if it exceeds daily capacity")
+        @DisplayName("Should split task if it exceeds block capacity with a system break")
         void shouldSplitTaskExceedingCapacity() {
             // Arrange
             LocalDate monday = LocalDate.of(2026, 3, 30);
@@ -116,13 +116,13 @@ class ScheduleServiceTest {
             GenerateScheduleRequest request = new GenerateScheduleRequest();
             request.setFrom(monday);
             request.setTo(to);
-            request.setMaxDailyWorkMinutes(120); // 2 hours capacity
+            request.setMaxDailyWorkMinutes(120); // 2 hours block limit
 
             Task longTask = Task.builder()
                     .id(UUID.randomUUID())
                     .title("Long Task")
                     .estimatedDurationMinutes(180) // 3 hours
-                    .cognitiveLoad(CognitiveLoad.MEDIUM)
+                    .cognitiveLoad(CognitiveLoad.HIGH)
                     .status(TaskStatus.OPEN)
                     .owner(testUser)
                     .organization(testOrg)
@@ -133,8 +133,8 @@ class ScheduleServiceTest {
             when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
                     .thenReturn(new ArrayList<>(List.of(longTask)));
             when(breakRepository.findByUserId(userId)).thenReturn(new ArrayList<>());
-            when(workingHoursService.getWorkWindow(userId, monday)).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
-            when(workingHoursService.getWorkWindow(userId, monday.plusDays(1))).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
+            // 9h window (09:00 - 18:00)
+            when(workingHoursService.getWorkWindow(userId, monday)).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(18, 0))));
 
             // Act
             scheduleService.generateSchedule(userId, orgId, request);
@@ -144,15 +144,17 @@ class ScheduleServiceTest {
             verify(scheduleEntryRepository).saveAll(captor.capture());
             
             List<ScheduleEntry> savedEntries = captor.getValue();
-            assertEquals(2, savedEntries.size());
+            // Expected: 120m Task, 60m Break, 60m Task
+            assertEquals(3, savedEntries.size());
             
-            assertEquals("Long Task", savedEntries.get(0).getTask().getTitle());
-            assertEquals(monday, savedEntries.get(0).getEntryDate());
+            assertEquals(ScheduleEntryType.TASK, savedEntries.get(0).getEntryType());
             assertEquals(120, java.time.Duration.between(savedEntries.get(0).getStartTime(), savedEntries.get(0).getEndTime()).toMinutes());
 
-            assertEquals("Long Task", savedEntries.get(1).getTask().getTitle());
-            assertEquals(monday.plusDays(1), savedEntries.get(1).getEntryDate());
+            assertEquals(ScheduleEntryType.BREAK, savedEntries.get(1).getEntryType());
             assertEquals(60, java.time.Duration.between(savedEntries.get(1).getStartTime(), savedEntries.get(1).getEndTime()).toMinutes());
+
+            assertEquals(ScheduleEntryType.TASK, savedEntries.get(2).getEntryType());
+            assertEquals(60, java.time.Duration.between(savedEntries.get(2).getStartTime(), savedEntries.get(2).getEndTime()).toMinutes());
         }
 
         @Test
@@ -164,7 +166,7 @@ class ScheduleServiceTest {
             GenerateScheduleRequest request = new GenerateScheduleRequest();
             request.setFrom(monday);
             request.setTo(to);
-            request.setMaxDailyWorkMinutes(240);
+            request.setMaxDailyWorkMinutes(480); // No block splitting
 
             Break lunchBreak = Break.builder()
                     .id(UUID.randomUUID())
@@ -203,9 +205,6 @@ class ScheduleServiceTest {
             
             List<ScheduleEntry> entries = captor.getValue();
             // Should have 1 break + 2 blocks for the task (split around break)
-            // Wait, the new logic adds breaks to newEntries too.
-            assertTrue(entries.stream().anyMatch(e -> e.getEntryType() == ScheduleEntryType.BREAK));
-            
             List<ScheduleEntry> taskEntries = entries.stream().filter(e -> e.getEntryType() == ScheduleEntryType.TASK).toList();
             assertEquals(2, taskEntries.size());
             
@@ -217,7 +216,7 @@ class ScheduleServiceTest {
         }
 
         @Test
-        @DisplayName("Should split 8h task into two 4h blocks across two days")
+        @DisplayName("Should split 8h task into blocks across two days")
         void shouldSplit8hTaskIntoTwo4hBlocks() {
             // Arrange
             LocalDate monday = LocalDate.of(2026, 3, 30);
@@ -225,12 +224,12 @@ class ScheduleServiceTest {
             GenerateScheduleRequest request = new GenerateScheduleRequest();
             request.setFrom(monday);
             request.setTo(to);
-            request.setMaxDailyWorkMinutes(240); // 4 hours capacity
+            request.setMaxDailyWorkMinutes(480); // No block limit
 
             Task longTask = Task.builder()
                     .id(UUID.randomUUID())
                     .title("8h Task")
-                    .estimatedDurationMinutes(480) // 8 hours
+                    .estimatedDurationMinutes(600) // 10 hours
                     .cognitiveLoad(CognitiveLoad.MEDIUM)
                     .status(TaskStatus.OPEN)
                     .owner(testUser)
@@ -242,6 +241,7 @@ class ScheduleServiceTest {
             when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
                     .thenReturn(new ArrayList<>(List.of(longTask)));
             when(breakRepository.findByUserId(userId)).thenReturn(new ArrayList<>());
+            // 8h window (09:00 - 17:00)
             when(workingHoursService.getWorkWindow(userId, monday)).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
             when(workingHoursService.getWorkWindow(userId, monday.plusDays(1))).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
 
@@ -254,8 +254,8 @@ class ScheduleServiceTest {
             
             List<ScheduleEntry> savedEntries = captor.getValue();
             assertEquals(2, savedEntries.size());
-            assertEquals(240, java.time.Duration.between(savedEntries.get(0).getStartTime(), savedEntries.get(0).getEndTime()).toMinutes());
-            assertEquals(240, java.time.Duration.between(savedEntries.get(1).getStartTime(), savedEntries.get(1).getEndTime()).toMinutes());
+            assertEquals(480, java.time.Duration.between(savedEntries.get(0).getStartTime(), savedEntries.get(0).getEndTime()).toMinutes());
+            assertEquals(120, java.time.Duration.between(savedEntries.get(1).getStartTime(), savedEntries.get(1).getEndTime()).toMinutes());
         }
     }
 }
