@@ -12,6 +12,6 @@ import java.util.UUID;
 @Repository
 public interface ScheduleEntryRepository extends JpaRepository<ScheduleEntry, UUID> {
     List<ScheduleEntry> findByUserIdAndEntryDateBetween(UUID userId, LocalDate start, LocalDate end);
-    void deleteByUserIdAndEntryDateBetween(UUID userId, LocalDate start, LocalDate end);
+    void deleteByUserIdAndEntryDateBetweenAndIsCompletedFalseAndIsPinnedFalse(UUID userId, LocalDate start, LocalDate end);
     Optional<ScheduleEntry> findByIdAndUserId(UUID id, UUID userId);
 }

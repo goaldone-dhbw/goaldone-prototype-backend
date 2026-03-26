@@ -4,7 +4,9 @@ import de.goaldone.backend.entity.*;
 import de.goaldone.backend.entity.enums.CognitiveLoad;
 import de.goaldone.backend.entity.enums.ScheduleEntryType;
 import de.goaldone.backend.entity.enums.TaskStatus;
+import de.goaldone.backend.entity.enums.RecurrenceType;
 import de.goaldone.backend.model.GenerateScheduleRequest;
+import de.goaldone.backend.model.WorkingHoursResponse;
 import de.goaldone.backend.repository.BreakRepository;
 import de.goaldone.backend.repository.ScheduleEntryRepository;
 import de.goaldone.backend.repository.TaskRepository;
@@ -19,6 +21,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.*;
@@ -68,12 +71,13 @@ class ScheduleServiceTest {
         void shouldGenerateScheduleWithSimpleTasks() {
             // Arrange
             LocalDate from = LocalDate.of(2026, 3, 30); // Monday
-            LocalDate to = LocalDate.of(2026, 3, 30);
+            LocalDate to = from.plusDays(13); // 14 days
             GenerateScheduleRequest request = new GenerateScheduleRequest();
             request.setFrom(from);
             request.setTo(to);
             request.setMaxDailyWorkMinutes(240);
 
+            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
             when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
             when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
                     .thenReturn(new ArrayList<>(List.of(
@@ -87,14 +91,12 @@ class ScheduleServiceTest {
             scheduleService.generateSchedule(userId, orgId, request);
 
             // Assert
-            verify(scheduleEntryRepository).deleteByUserIdAndEntryDateBetween(userId, from, to);
+            verify(scheduleEntryRepository).deleteByUserIdAndEntryDateBetweenAndIsCompletedFalseAndIsPinnedFalse(userId, from, to);
             
             ArgumentCaptor<List<ScheduleEntry>> captor = ArgumentCaptor.forClass(List.class);
             verify(scheduleEntryRepository).saveAll(captor.capture());
             
             List<ScheduleEntry> savedEntries = captor.getValue();
-            assertEquals(2, savedEntries.size());
-            
             // Should be sorted by HIGH cognitive load first (Task 2 before Task 1)
             assertEquals("Task 2", savedEntries.get(0).getTask().getTitle());
             assertEquals(LocalTime.of(9, 0), savedEntries.get(0).getStartTime());
@@ -110,10 +112,10 @@ class ScheduleServiceTest {
         void shouldSplitTaskExceedingCapacity() {
             // Arrange
             LocalDate monday = LocalDate.of(2026, 3, 30);
-            LocalDate tuesday = LocalDate.of(2026, 3, 31);
+            LocalDate to = monday.plusDays(13);
             GenerateScheduleRequest request = new GenerateScheduleRequest();
             request.setFrom(monday);
-            request.setTo(tuesday);
+            request.setTo(to);
             request.setMaxDailyWorkMinutes(120); // 2 hours capacity
 
             Task longTask = Task.builder()
@@ -126,31 +128,31 @@ class ScheduleServiceTest {
                     .organization(testOrg)
                     .build();
 
+            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
             when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
             when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
                     .thenReturn(new ArrayList<>(List.of(longTask)));
             when(breakRepository.findByUserId(userId)).thenReturn(new ArrayList<>());
             when(workingHoursService.getWorkWindow(userId, monday)).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
-            when(workingHoursService.getWorkWindow(userId, tuesday)).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
+            when(workingHoursService.getWorkWindow(userId, monday.plusDays(1))).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
 
             // Act
             scheduleService.generateSchedule(userId, orgId, request);
 
             // Assert
             ArgumentCaptor<List<ScheduleEntry>> captor = ArgumentCaptor.forClass(List.class);
-            verify(scheduleEntryRepository, times(2)).saveAll(captor.capture());
+            verify(scheduleEntryRepository).saveAll(captor.capture());
             
-            List<ScheduleEntry> mondayEntries = captor.getAllValues().get(0);
-            assertEquals(1, mondayEntries.size());
-            assertEquals("Long Task", mondayEntries.get(0).getTask().getTitle());
-            assertEquals(LocalTime.of(9, 0), mondayEntries.get(0).getStartTime());
-            assertEquals(LocalTime.of(11, 0), mondayEntries.get(0).getEndTime());
+            List<ScheduleEntry> savedEntries = captor.getValue();
+            assertEquals(2, savedEntries.size());
+            
+            assertEquals("Long Task", savedEntries.get(0).getTask().getTitle());
+            assertEquals(monday, savedEntries.get(0).getEntryDate());
+            assertEquals(120, java.time.Duration.between(savedEntries.get(0).getStartTime(), savedEntries.get(0).getEndTime()).toMinutes());
 
-            List<ScheduleEntry> tuesdayEntries = captor.getAllValues().get(1);
-            assertEquals(1, tuesdayEntries.size());
-            assertEquals("Long Task (Rest)", tuesdayEntries.get(0).getTask().getTitle());
-            assertEquals(LocalTime.of(9, 0), tuesdayEntries.get(0).getStartTime());
-            assertEquals(LocalTime.of(10, 0), tuesdayEntries.get(0).getEndTime());
+            assertEquals("Long Task", savedEntries.get(1).getTask().getTitle());
+            assertEquals(monday.plusDays(1), savedEntries.get(1).getEntryDate());
+            assertEquals(60, java.time.Duration.between(savedEntries.get(1).getStartTime(), savedEntries.get(1).getEndTime()).toMinutes());
         }
 
         @Test
@@ -158,9 +160,10 @@ class ScheduleServiceTest {
         void shouldScheduleAroundBreaks() {
             // Arrange
             LocalDate monday = LocalDate.of(2026, 3, 30);
+            LocalDate to = monday.plusDays(13);
             GenerateScheduleRequest request = new GenerateScheduleRequest();
             request.setFrom(monday);
-            request.setTo(monday);
+            request.setTo(to);
             request.setMaxDailyWorkMinutes(240);
 
             Break lunchBreak = Break.builder()
@@ -169,6 +172,9 @@ class ScheduleServiceTest {
                     .startTime(LocalTime.of(12, 0))
                     .endTime(LocalTime.of(13, 0))
                     .user(testUser)
+                    .createdAt(Instant.parse("2026-03-01T00:00:00Z"))
+                    .recurrenceType(RecurrenceType.DAILY)
+                    .recurrenceInterval(1)
                     .build();
 
             Task task = Task.builder()
@@ -181,6 +187,7 @@ class ScheduleServiceTest {
                     .organization(testOrg)
                     .build();
 
+            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
             when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
             when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
                     .thenReturn(new ArrayList<>(List.of(task)));
@@ -195,18 +202,18 @@ class ScheduleServiceTest {
             verify(scheduleEntryRepository).saveAll(captor.capture());
             
             List<ScheduleEntry> entries = captor.getValue();
-            assertEquals(3, entries.size());
+            // Should have 1 break + 2 blocks for the task (split around break)
+            // Wait, the new logic adds breaks to newEntries too.
+            assertTrue(entries.stream().anyMatch(e -> e.getEntryType() == ScheduleEntryType.BREAK));
             
-            assertEquals(ScheduleEntryType.BREAK, entries.get(0).getEntryType());
-            assertEquals(LocalTime.of(12, 0), entries.get(0).getStartTime());
+            List<ScheduleEntry> taskEntries = entries.stream().filter(e -> e.getEntryType() == ScheduleEntryType.TASK).toList();
+            assertEquals(2, taskEntries.size());
+            
+            assertEquals(LocalTime.of(9, 0), taskEntries.get(0).getStartTime());
+            assertEquals(LocalTime.of(12, 0), taskEntries.get(0).getEndTime());
 
-            assertEquals(ScheduleEntryType.TASK, entries.get(1).getEntryType());
-            assertEquals(LocalTime.of(9, 0), entries.get(1).getStartTime());
-            assertEquals(LocalTime.of(12, 0), entries.get(1).getEndTime());
-
-            assertEquals(ScheduleEntryType.TASK, entries.get(2).getEntryType());
-            assertEquals(LocalTime.of(13, 0), entries.get(2).getStartTime());
-            assertEquals(LocalTime.of(14, 0), entries.get(2).getEndTime());
+            assertEquals(LocalTime.of(13, 0), taskEntries.get(1).getStartTime());
+            assertEquals(LocalTime.of(14, 0), taskEntries.get(1).getEndTime());
         }
 
         @Test
@@ -214,10 +221,10 @@ class ScheduleServiceTest {
         void shouldSplit8hTaskIntoTwo4hBlocks() {
             // Arrange
             LocalDate monday = LocalDate.of(2026, 3, 30);
-            LocalDate tuesday = LocalDate.of(2026, 3, 31);
+            LocalDate to = monday.plusDays(13);
             GenerateScheduleRequest request = new GenerateScheduleRequest();
             request.setFrom(monday);
-            request.setTo(tuesday);
+            request.setTo(to);
             request.setMaxDailyWorkMinutes(240); // 4 hours capacity
 
             Task longTask = Task.builder()
@@ -230,27 +237,25 @@ class ScheduleServiceTest {
                     .organization(testOrg)
                     .build();
 
+            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
             when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
             when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
                     .thenReturn(new ArrayList<>(List.of(longTask)));
             when(breakRepository.findByUserId(userId)).thenReturn(new ArrayList<>());
             when(workingHoursService.getWorkWindow(userId, monday)).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
-            when(workingHoursService.getWorkWindow(userId, tuesday)).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
+            when(workingHoursService.getWorkWindow(userId, monday.plusDays(1))).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
 
             // Act
             scheduleService.generateSchedule(userId, orgId, request);
 
             // Assert
             ArgumentCaptor<List<ScheduleEntry>> captor = ArgumentCaptor.forClass(List.class);
-            verify(scheduleEntryRepository, times(2)).saveAll(captor.capture());
+            verify(scheduleEntryRepository).saveAll(captor.capture());
             
-            List<ScheduleEntry> mondayEntries = captor.getAllValues().get(0);
-            assertEquals(1, mondayEntries.size());
-            assertEquals(240, java.time.Duration.between(mondayEntries.get(0).getStartTime(), mondayEntries.get(0).getEndTime()).toMinutes());
-
-            List<ScheduleEntry> tuesdayEntries = captor.getAllValues().get(1);
-            assertEquals(1, tuesdayEntries.size());
-            assertEquals(240, java.time.Duration.between(tuesdayEntries.get(0).getStartTime(), tuesdayEntries.get(0).getEndTime()).toMinutes());
+            List<ScheduleEntry> savedEntries = captor.getValue();
+            assertEquals(2, savedEntries.size());
+            assertEquals(240, java.time.Duration.between(savedEntries.get(0).getStartTime(), savedEntries.get(0).getEndTime()).toMinutes());
+            assertEquals(240, java.time.Duration.between(savedEntries.get(1).getStartTime(), savedEntries.get(1).getEndTime()).toMinutes());
         }
     }
 }

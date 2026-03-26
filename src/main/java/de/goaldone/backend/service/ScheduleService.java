@@ -11,14 +11,17 @@ import de.goaldone.backend.exception.ConflictException;
 import de.goaldone.backend.exception.ResourceNotFoundException;
 import de.goaldone.backend.model.GenerateScheduleRequest;
 import de.goaldone.backend.model.ScheduleResponse;
+import de.goaldone.backend.model.WorkingHoursResponse;
 import de.goaldone.backend.repository.BreakRepository;
 import de.goaldone.backend.repository.ScheduleEntryRepository;
 import de.goaldone.backend.repository.TaskRepository;
 import de.goaldone.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.*;
 import java.util.*;
@@ -39,21 +42,31 @@ public class ScheduleService {
     @Transactional(readOnly = true)
     public ScheduleResponse getSchedule(UUID userId, LocalDate from, LocalDate to) {
         List<ScheduleEntry> entries = scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, from, to);
-        return mapToScheduleResponse(from, to, entries);
+        return mapToScheduleResponse(from, to, entries, new ArrayList<>());
     }
 
     @Transactional
     public ScheduleResponse generateSchedule(UUID userId, UUID orgId, GenerateScheduleRequest request) {
-        validationService.requireNotNull(request.getFrom(), "from");
-        validationService.requireNotNull(request.getTo(), "to");
-        validationService.requireNotBefore(request.getTo(), request.getFrom(), "to");
-        if (request.getMaxDailyWorkMinutes() != null) {
-            validationService.requireRange(request.getMaxDailyWorkMinutes(), "maxDailyWorkMinutes", 30, 480);
-        }
-
         LocalDate from = request.getFrom();
         LocalDate to = request.getTo();
         int maxDailyWorkMinutes = request.getMaxDailyWorkMinutes() != null ? request.getMaxDailyWorkMinutes() : 240;
+
+        // 1. Pre-flight Check
+        WorkingHoursResponse workingHours;
+        try {
+            workingHours = workingHoursService.getWorkingHours(userId);
+        } catch (ResourceNotFoundException e) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "working-hours-missing");
+        }
+
+        if (workingHours == null || workingHours.getDays() == null || workingHours.getDays().isEmpty()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "working-hours-missing");
+        }
+
+        // 2. Window validation (14 days = from + 13)
+        if (java.time.temporal.ChronoUnit.DAYS.between(from, to) != 13) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid-schedule-window");
+        }
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -64,141 +77,247 @@ public class ScheduleService {
         
         Organization organization = user.getOrganization();
 
-        // 1. Delete existing entries
-        scheduleEntryRepository.deleteByUserIdAndEntryDateBetween(userId, from, to);
+        // 3. Algorithm Calculation in memory
+        List<ScheduleEntry> newEntries = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
 
-        // 2. Load tasks
-        List<Task> tasks = taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(
+        // Load tasks
+        List<Task> allTasks = taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(
                 userId, Arrays.asList(TaskStatus.OPEN, TaskStatus.IN_PROGRESS));
         
-        // Robust sort to handle Enum string ordering issues and null deadlines
-        tasks.sort(Comparator.comparing(Task::getDeadline, Comparator.nullsLast(Comparator.naturalOrder()))
+        // Stable sort: Deadline ASC, CognitiveLoad DESC
+        allTasks.sort(Comparator.comparing(Task::getDeadline, Comparator.nullsLast(Comparator.naturalOrder()))
                 .thenComparing(Task::getCognitiveLoad, Comparator.reverseOrder()));
-        
-        Deque<Task> taskPool = new ArrayDeque<>(tasks);
 
-        // 3. Load breaks
+        // Track remaining minutes for one-time tasks across the 14 days
+        Map<UUID, Integer> remainingOneTimeMinutes = new HashMap<>();
+        List<Task> oneTimeTasks = new ArrayList<>();
+        List<Task> recurringTasks = new ArrayList<>();
+        
+        for (Task t : allTasks) {
+            if (t.getRecurrenceType() != null) {
+                recurringTasks.add(t);
+                if (t.getEstimatedDurationMinutes() > maxDailyWorkMinutes) {
+                    warnings.add("unschedulable-task:" + t.getId());
+                }
+            } else {
+                oneTimeTasks.add(t);
+                remainingOneTimeMinutes.put(t.getId(), t.getEstimatedDurationMinutes());
+                if (t.getEstimatedDurationMinutes() > maxDailyWorkMinutes) {
+                    warnings.add("unschedulable-task:" + t.getId());
+                }
+            }
+        }
+
+        // Load breaks
         List<Break> breaks = breakRepository.findByUserId(userId);
-        breaks.sort(Comparator.comparing(Break::getStartTime));
+
+        // Load existing fixed/completed entries to block budget
+        List<ScheduleEntry> existingEntries = scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, from, to);
+        Map<LocalDate, List<ScheduleEntry>> fixedEntriesPerDay = existingEntries.stream()
+                .filter(e -> e.isCompleted() || e.isPinned())
+                .collect(Collectors.groupingBy(ScheduleEntry::getEntryDate));
 
         Instant generationTime = Instant.now();
 
-        // 4. Iterate over days
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
-            // a. Prepare day capacity
-            java.util.Optional<WorkingHoursService.WorkWindow> windowOpt = workingHoursService.getWorkWindow(userId, date);
+            final LocalDate currentDay = date;
+            
+            // a. Work Day Check
+            java.util.Optional<WorkingHoursService.WorkWindow> windowOpt = workingHoursService.getWorkWindow(userId, currentDay);
             if (windowOpt.isEmpty()) {
                 continue;
             }
-            
             WorkingHoursService.WorkWindow window = windowOpt.get();
-            LocalTime dayStartTime = window.startTime();
-            LocalTime dayEndTime = window.endTime();
 
-            int remainingCapacity = maxDailyWorkMinutes;
+            // b. Budget Deduction
+            List<ScheduleEntry> fixedToday = fixedEntriesPerDay.getOrDefault(currentDay, new ArrayList<>());
+            int fixedMinutesUsed = fixedToday.stream()
+                    .mapToInt(e -> (int) Duration.between(e.getStartTime(), e.getEndTime()).toMinutes())
+                    .sum();
+            
+            int availableBudget = maxDailyWorkMinutes - fixedMinutesUsed;
+            if (availableBudget <= 0) {
+                continue;
+            }
+
+            List<ScheduleEntry> dayEntries = new ArrayList<>();
             List<Task> tasksForToday = new ArrayList<>();
 
-            while (remainingCapacity > 0 && !taskPool.isEmpty()) {
-                Task task = taskPool.pollFirst();
-                int duration = task.getEstimatedDurationMinutes();
-
-                if (duration <= remainingCapacity) {
-                    tasksForToday.add(task);
-                    remainingCapacity -= duration;
-                    // Mark as in progress if it wasn't
-                    if (task.getStatus() == TaskStatus.OPEN) {
-                        task.setStatus(TaskStatus.IN_PROGRESS);
-                        taskRepository.save(task);
-                    }
-                } else {
-                    // Split task
-                    int scheduledMinutes = remainingCapacity;
-                    int leftoverMinutes = duration - scheduledMinutes;
-
-                    // Update original task
-                    task.setEstimatedDurationMinutes(scheduledMinutes);
-                    task.setStatus(TaskStatus.IN_PROGRESS);
-                    taskRepository.save(task);
-
-                    // Create child task
-                    Task childTask = Task.builder()
-                            .title(task.getTitle() + " (Rest)")
-                            .description(task.getDescription())
-                            .status(TaskStatus.OPEN)
-                            .cognitiveLoad(task.getCognitiveLoad())
-                            .estimatedDurationMinutes(leftoverMinutes)
-                            .deadline(task.getDeadline())
-                            .owner(task.getOwner())
-                            .organization(task.getOrganization())
-                            .parentTask(task)
-                            .build();
-                    taskRepository.save(childTask);
-
-                    tasksForToday.add(task);
-                    taskPool.addFirst(childTask); // Put rest for next day
-                    remainingCapacity = 0;
+            // c. Block breaks
+            for (Break b : breaks) {
+                if (matchesRecurrence(b.getRecurrenceType(), b.getRecurrenceInterval(), null, b.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate(), currentDay)) {
+                    dayEntries.add(ScheduleEntry.builder()
+                            .user(user)
+                            .organization(organization)
+                            .breakEntry(b)
+                            .entryDate(currentDay)
+                            .startTime(b.getStartTime())
+                            .endTime(b.getEndTime())
+                            .entryType(ScheduleEntryType.BREAK)
+                            .generatedAt(generationTime)
+                            .build());
                 }
             }
 
-            // b. Schedule breaks (blockers)
-            List<ScheduleEntry> dayEntries = new ArrayList<>();
-            for (Break b : breaks) {
-                dayEntries.add(ScheduleEntry.builder()
-                        .user(user)
-                        .organization(organization)
-                        .breakEntry(b)
-                        .entryDate(date)
-                        .startTime(b.getStartTime())
-                        .endTime(b.getEndTime())
-                        .entryType(ScheduleEntryType.BREAK)
-                        .generatedAt(generationTime)
-                        .build());
+            // d. Recurrence Expansion (Tasks)
+            for (Task rt : recurringTasks) {
+                if (rt.getStartDate() != null && currentDay.isBefore(rt.getStartDate())) {
+                    continue;
+                }
+                if (matchesRecurrence(rt.getRecurrenceType(), rt.getRecurrenceInterval(), rt.getStartDate(), from, currentDay)) {
+                    if (rt.getEstimatedDurationMinutes() <= availableBudget) {
+                        tasksForToday.add(rt);
+                        availableBudget -= rt.getEstimatedDurationMinutes();
+                    } else if (availableBudget > 0) {
+                        // If it doesn't fit fully, we still add it but warn? 
+                        // The prompt says: "Fill remaining time with tasks up to maxDailyWorkMinutes"
+                        // For recurring tasks, if it doesn't fit in budget, we might skip or partial.
+                        // Let's stick to simple: if it fits partially, we schedule what we can.
+                        int duration = Math.min(rt.getEstimatedDurationMinutes(), availableBudget);
+                        tasksForToday.add(Task.builder()
+                                .id(rt.getId())
+                                .title(rt.getTitle())
+                                .cognitiveLoad(rt.getCognitiveLoad())
+                                .estimatedDurationMinutes(duration)
+                                .build());
+                        availableBudget -= duration;
+                        warnings.add("task-budget-exceeded:" + rt.getId());
+                    }
+                }
             }
 
-            // c. Re-sort today's tasks by HIGH cognitive load first
-            tasksForToday.sort(Comparator.comparing(Task::getCognitiveLoad).reversed());
+            // e. Fill remaining budget with One-Time Tasks
+            for (Task t : oneTimeTasks) {
+                if (availableBudget <= 0) break;
+                if (t.getStartDate() != null && currentDay.isBefore(t.getStartDate())) continue;
+                
+                int remaining = remainingOneTimeMinutes.get(t.getId());
+                if (remaining <= 0) continue;
 
-            // d. Allocate slots
-            LocalTime currentTime = dayStartTime;
+                int durationToSchedule = Math.min(remaining, availableBudget);
+                
+                tasksForToday.add(Task.builder()
+                        .id(t.getId())
+                        .title(t.getTitle())
+                        .cognitiveLoad(t.getCognitiveLoad())
+                        .estimatedDurationMinutes(durationToSchedule)
+                        .build());
+                
+                if (durationToSchedule < remaining) {
+                    warnings.add("task-budget-exceeded:" + t.getId());
+                }
+                
+                remainingOneTimeMinutes.put(t.getId(), remaining - durationToSchedule);
+                availableBudget -= durationToSchedule;
+            }
+
+            // f. Sort today's tasks: HIGH cognitive load first
+            tasksForToday.sort(Comparator.comparing(Task::getCognitiveLoad, Comparator.reverseOrder()));
+
+            // g. Slot Allocation
+            LocalTime currentTime = window.startTime();
+            LocalTime dayEndTime = window.endTime();
+
+            List<TimeBlock> blockers = new ArrayList<>();
+            for (ScheduleEntry be : dayEntries) { blockers.add(new TimeBlock(be.getStartTime(), be.getEndTime())); }
+            for (ScheduleEntry fe : fixedToday) { blockers.add(new TimeBlock(fe.getStartTime(), fe.getEndTime())); }
+            blockers.sort(Comparator.comparing(TimeBlock::start));
+
+            Map<UUID, Task> taskMap = allTasks.stream().collect(Collectors.toMap(Task::getId, t -> t));
+
             for (Task t : tasksForToday) {
                 int durationRemaining = t.getEstimatedDurationMinutes();
-                while (durationRemaining > 0) {
-                    // Find next break
-                    LocalTime nextStartTime = currentTime;
-                    Optional<Break> nextBreak = findNextBreak(breaks, nextStartTime);
+                while (durationRemaining > 0 && !currentTime.isAfter(dayEndTime)) {
+                    LocalTime slotStart = currentTime;
+                    
+                    Optional<TimeBlock> blocker = findOverlappingBlocker(blockers, slotStart);
+                    if (blocker.isPresent()) {
+                        currentTime = blocker.get().end();
+                        continue;
+                    }
 
-                    if (nextBreak.isPresent()) {
-                        Break b = nextBreak.get();
-                        if (b.getStartTime().isBefore(nextStartTime.plusMinutes(durationRemaining))) {
-                            // Interrupted by break
-                            if (b.getStartTime().isAfter(nextStartTime)) {
-                                // Time before break
-                                int minsBefore = (int) Duration.between(nextStartTime, b.getStartTime()).toMinutes();
-                                dayEntries.add(createTaskEntry(user, organization, t, date, nextStartTime, b.getStartTime(), generationTime));
-                                durationRemaining -= minsBefore;
-                            }
-                            // Move past break
-                            nextStartTime = b.getEndTime();
-                            currentTime = nextStartTime;
-                        } else {
-                            // No interruption before task ends
-                            dayEntries.add(createTaskEntry(user, organization, t, date, nextStartTime, nextStartTime.plusMinutes(durationRemaining), generationTime));
-                            currentTime = nextStartTime.plusMinutes(durationRemaining);
-                            durationRemaining = 0;
-                        }
+                    Optional<TimeBlock> nextBlocker = findNextBlocker(blockers, slotStart);
+                    LocalTime nextInterrupt = nextBlocker.map(TimeBlock::start).orElse(dayEndTime);
+                    
+                    int availableMins = (int) Duration.between(slotStart, nextInterrupt).toMinutes();
+                    if (availableMins > 0) {
+                        int scheduled = Math.min(availableMins, durationRemaining);
+                        LocalTime slotEnd = slotStart.plusMinutes(scheduled);
+                        
+                        newEntries.add(ScheduleEntry.builder()
+                                .user(user)
+                                .organization(organization)
+                                .task(taskMap.get(t.getId()))
+                                .entryDate(currentDay)
+                                .startTime(slotStart)
+                                .endTime(slotEnd)
+                                .entryType(ScheduleEntryType.TASK)
+                                .generatedAt(generationTime)
+                                .build());
+                        
+                        durationRemaining -= scheduled;
+                        currentTime = slotEnd;
                     } else {
-                        // No more breaks today
-                        dayEntries.add(createTaskEntry(user, organization, t, date, nextStartTime, nextStartTime.plusMinutes(durationRemaining), generationTime));
-                        currentTime = nextStartTime.plusMinutes(durationRemaining);
-                        durationRemaining = 0;
+                        currentTime = nextInterrupt;
                     }
                 }
             }
-            
-            scheduleEntryRepository.saveAll(dayEntries);
+            // Add breaks for the day to newEntries as well
+            newEntries.addAll(dayEntries);
         }
 
-        return getSchedule(userId, from, to);
+        // 4. Post-check for deadlines
+        for (Task t : oneTimeTasks) {
+            if (remainingOneTimeMinutes.get(t.getId()) > 0 && t.getDeadline() != null) {
+                if (!t.getDeadline().isAfter(to)) {
+                    warnings.add("deadline-at-risk:" + t.getId());
+                }
+            }
+        }
+
+        // 5. Selective delete
+        scheduleEntryRepository.deleteByUserIdAndEntryDateBetweenAndIsCompletedFalseAndIsPinnedFalse(userId, from, to);
+
+        // 6. Persist
+        scheduleEntryRepository.saveAll(newEntries);
+
+        return mapToScheduleResponse(from, to, scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, from, to), warnings);
+    }
+
+    private boolean matchesRecurrence(de.goaldone.backend.entity.enums.RecurrenceType type, Integer interval, LocalDate startDate, LocalDate createdAt, LocalDate currentDay) {
+        if (type == null) return false;
+        if (interval == null || interval < 1) interval = 1;
+        
+        LocalDate baseDate = startDate != null ? startDate : createdAt;
+        if (currentDay.isBefore(baseDate)) return false;
+
+        switch (type) {
+            case DAILY:
+                return java.time.temporal.ChronoUnit.DAYS.between(baseDate, currentDay) % interval == 0;
+            case WEEKLY:
+                return baseDate.getDayOfWeek() == currentDay.getDayOfWeek() && 
+                       (java.time.temporal.ChronoUnit.WEEKS.between(baseDate, currentDay) % interval == 0);
+            case MONTHLY:
+                return baseDate.getDayOfMonth() == currentDay.getDayOfMonth() &&
+                       (java.time.temporal.ChronoUnit.MONTHS.between(baseDate, currentDay) % interval == 0);
+            default:
+                return false;
+        }
+    }
+
+    private record TimeBlock(LocalTime start, LocalTime end) {}
+
+    private Optional<TimeBlock> findOverlappingBlocker(List<TimeBlock> blockers, LocalTime time) {
+        return blockers.stream()
+                .filter(b -> !time.isBefore(b.start()) && time.isBefore(b.end()))
+                .findFirst();
+    }
+
+    private Optional<TimeBlock> findNextBlocker(List<TimeBlock> blockers, LocalTime after) {
+        return blockers.stream()
+                .filter(b -> b.start().isAfter(after) || b.start().equals(after))
+                .findFirst();
     }
 
     @Transactional
@@ -253,8 +372,12 @@ public class ScheduleService {
                 .build();
     }
 
-    private ScheduleResponse mapToScheduleResponse(LocalDate from, LocalDate to, List<ScheduleEntry> entries) {
-        Instant generatedAt = entries.isEmpty() ? Instant.now() : entries.get(0).getGeneratedAt();
+    private ScheduleResponse mapToScheduleResponse(LocalDate from, LocalDate to, List<ScheduleEntry> entries, List<String> warnings) {
+        Instant generatedAt = entries.stream()
+                .map(ScheduleEntry::getGeneratedAt)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(Instant.now());
         
         int totalWorkMinutes = entries.stream()
                 .filter(e -> e.getEntryType() == ScheduleEntryType.TASK)
@@ -266,6 +389,7 @@ public class ScheduleService {
                 .from(from)
                 .to(to)
                 .totalWorkMinutes(totalWorkMinutes)
+                .warnings(new ArrayList<>(new LinkedHashSet<>(warnings))) // Unique warnings
                 .entries(entries.stream().map(this::mapToScheduleEntryModel).toList())
                 .build();
     }
