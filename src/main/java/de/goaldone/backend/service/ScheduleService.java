@@ -147,16 +147,22 @@ public class ScheduleService {
             // c. Block breaks
             for (Break b : breaks) {
                 if (matchesRecurrence(b.getRecurrenceType(), b.getRecurrenceInterval(), null, b.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate(), currentDay)) {
-                    dayEntries.add(ScheduleEntry.builder()
-                            .user(user)
-                            .organization(organization)
-                            .breakEntry(b)
-                            .entryDate(currentDay)
-                            .startTime(b.getStartTime())
-                            .endTime(b.getEndTime())
-                            .entryType(ScheduleEntryType.BREAK)
-                            .generatedAt(generationTime)
-                            .build());
+                    // Avoid unique constraint violation: skip if a fixed entry or another break already starts at this time
+                    boolean collision = fixedToday.stream().anyMatch(fe -> fe.getStartTime().equals(b.getStartTime())) ||
+                                      dayEntries.stream().anyMatch(de -> de.getStartTime().equals(b.getStartTime()));
+                    
+                    if (!collision) {
+                        dayEntries.add(ScheduleEntry.builder()
+                                .user(user)
+                                .organization(organization)
+                                .breakEntry(b)
+                                .entryDate(currentDay)
+                                .startTime(b.getStartTime())
+                                .endTime(b.getEndTime())
+                                .entryType(ScheduleEntryType.BREAK)
+                                .generatedAt(generationTime)
+                                .build());
+                    }
                 }
             }
 
@@ -228,7 +234,7 @@ public class ScheduleService {
 
             for (Task t : tasksForToday) {
                 int durationRemaining = t.getEstimatedDurationMinutes();
-                while (durationRemaining > 0 && !currentTime.isAfter(dayEndTime)) {
+                while (durationRemaining > 0 && currentTime.isBefore(dayEndTime)) {
                     LocalTime slotStart = currentTime;
                     
                     Optional<TimeBlock> blocker = findOverlappingBlocker(blockers, slotStart);
@@ -278,6 +284,7 @@ public class ScheduleService {
 
         // 5. Selective delete
         scheduleEntryRepository.deleteByUserIdAndEntryDateBetweenAndIsCompletedFalseAndIsPinnedFalse(userId, from, to);
+        scheduleEntryRepository.flush();
 
         // 6. Persist
         scheduleEntryRepository.saveAll(newEntries);

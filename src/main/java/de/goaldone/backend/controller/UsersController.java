@@ -6,6 +6,7 @@ import de.goaldone.backend.model.UserResponse;
 import de.goaldone.backend.model.UpsertWorkingHoursRequest;
 import de.goaldone.backend.model.WorkingHoursResponse;
 import de.goaldone.backend.service.UserService;
+import de.goaldone.backend.service.WorkingHoursService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class UsersController extends BaseController implements UsersApi {
 
     private final UserService userService;
+    private final WorkingHoursService workingHoursService;
 
     @Override
     public ResponseEntity<Void> deleteMyAccount() {
@@ -34,15 +36,11 @@ public class UsersController extends BaseController implements UsersApi {
 
     @Override
     public ResponseEntity<WorkingHoursResponse> getWorkingHours() {
-        // TODO: Implement working hours retrieval
-        return ResponseEntity.ok(WorkingHoursResponse.builder().build());
+        return ResponseEntity.ok(workingHoursService.getWorkingHours(getCurrentUserId()));
     }
 
     @Override
     public ResponseEntity<WorkingHoursResponse> upsertWorkingHours(UpsertWorkingHoursRequest upsertWorkingHoursRequest) {
-        // TODO: Implement working hours persistence
-        return ResponseEntity.ok(WorkingHoursResponse.builder()
-                .days(upsertWorkingHoursRequest.getDays())
-                .build());
+        return ResponseEntity.ok(workingHoursService.upsertWorkingHours(upsertWorkingHoursRequest, getCurrentUserId()));
     }
 }
