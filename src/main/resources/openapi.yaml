@@ -94,6 +94,8 @@ tags:
     description: Einladungslinks verwalten (Admin)
   - name: tasks
     description: Aufgaben erstellen, abrufen, bearbeiten und löschen
+  - name: working-hours
+    description: Wöchentliche Arbeitszeit-Vorlage verwalten
   - name: breaks
     description: Persönliche Pausen konfigurieren
   - name: schedule
@@ -761,8 +763,19 @@ paths:
   /tasks/{taskId}/complete:
     patch:
       tags: [tasks]
-      summary: Task als erledigt markieren
-      description: Setzt den Status des Tasks auf DONE und setzt completedAt.
+      summary: Task global als erledigt markieren (Backlog-Ansicht)
+      description: |
+        Setzt den Status des Tasks auf `DONE` und setzt `completedAt`.
+
+        **Wichtiger Unterschied zur Entry-Completion:**
+        Dieser Endpunkt markiert den **gesamten Task** dauerhaft als erledigt –
+        unabhängig davon, ob er wiederkehrend ist. Bei wiederkehrenden Tasks
+        sollte stattdessen `PATCH /schedule/{entryId}/complete` verwendet werden,
+        um nur einen einzelnen Kalenderblock abzuhaken und den Task für die Zukunft
+        zu erhalten.
+
+        Dieser Endpunkt ist primär für die **Backlog-Ansicht** gedacht
+        (z.B. um einen Task manuell zu schließen, ohne ihn im Tagesplan abzuhaken).
       operationId: completeTask
       parameters:
         - $ref: '#/components/parameters/TaskIdParam'
@@ -813,6 +826,95 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
+
+  # ════════════════════════════════════════════
+  # WORKING HOURS
+  # ════════════════════════════════════════════
+
+  /users/me/working-hours:
+    get:
+      tags: [working-hours]
+      summary: Eigene Arbeitszeit-Vorlage abrufen
+      description: |
+        Gibt die wöchentliche Arbeitszeit-Vorlage des eingeloggten Nutzers zurück.
+        Die Vorlage enthält für jeden Wochentag (Mo–So) einen Eintrag mit Start-/Endzeit
+        oder die Markierung als arbeitsfreier Tag.
+
+        Falls noch keine Vorlage gespeichert wurde, wird `404` zurückgegeben.
+      operationId: getWorkingHours
+      responses:
+        '200':
+          description: Arbeitszeit-Vorlage des Nutzers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkingHoursResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [working-hours]
+      summary: Eigene Arbeitszeit-Vorlage speichern oder ersetzen
+      description: |
+        Speichert die wöchentliche Arbeitszeit-Vorlage des eingeloggten Nutzers vollständig.
+        Eine bestehende Vorlage wird dabei atomar ersetzt – es gibt keinen Teilupdate.
+
+        **Regeln:**
+        - Das Array `days` muss **alle 7 Wochentage** (Mo–So) enthalten, jeder genau einmal.
+        - Für Arbeitstage (`isWorkDay: true`) sind `startTime` und `endTime` **Pflichtfelder**.
+        - Für freie Tage (`isWorkDay: false`) werden `startTime` und `endTime` ignoriert bzw.
+          müssen nicht angegeben werden.
+        - `endTime` muss nach `startTime` liegen (Validierung serverseitig).
+        - Pausen werden **separat** über `/breaks` konfiguriert und nicht hier eingetragen.
+
+        Der Planungsalgorithmus (`/schedule/generate`) nutzt diese Vorlage automatisch,
+        um den täglichen Arbeitsrahmen zu bestimmen.
+      operationId: upsertWorkingHours
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertWorkingHoursRequest'
+            example:
+              days:
+                - dayOfWeek: MONDAY
+                  isWorkDay: true
+                  startTime: "08:00"
+                  endTime: "16:00"
+                - dayOfWeek: TUESDAY
+                  isWorkDay: true
+                  startTime: "08:00"
+                  endTime: "16:00"
+                - dayOfWeek: WEDNESDAY
+                  isWorkDay: true
+                  startTime: "08:00"
+                  endTime: "16:00"
+                - dayOfWeek: THURSDAY
+                  isWorkDay: true
+                  startTime: "08:00"
+                  endTime: "16:00"
+                - dayOfWeek: FRIDAY
+                  isWorkDay: true
+                  startTime: "09:00"
+                  endTime: "12:00"
+                - dayOfWeek: SATURDAY
+                  isWorkDay: false
+                - dayOfWeek: SUNDAY
+                  isWorkDay: false
+      responses:
+        '200':
+          description: Arbeitszeit-Vorlage gespeichert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkingHoursResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   # ════════════════════════════════════════════
   # BREAKS
@@ -945,16 +1047,41 @@ paths:
       tags: [schedule]
       summary: Planungsalgorithmus ausführen (synchron)
       description: |
-        Führt den Planungsalgorithmus für den angegebenen Zeitraum synchron aus.
+        Führt den Planungsalgorithmus für ein **14-Tage-Fenster** synchron aus.
         Der Server antwortet erst, wenn der Plan vollständig generiert ist.
 
-        **Algorithmus-Prinzipien (aus Anforderungsdokument):**
+        **Algorithmus-Prinzipien:**
         - Max. ~4h kognitive Arbeit pro Tag (konfigurierbar via `maxDailyWorkMinutes`)
         - Aufgaben werden nach `cognitiveLoad` und `deadline` priorisiert
-        - Pausen des Nutzers werden berücksichtigt und blockiert
+        - `HIGH`-Tasks werden bevorzugt in produktive Morgenstunden gelegt
+        - Tasks mit `startDate` werden nicht vor diesem Datum eingeplant
+        - Wiederholende Tasks (`recurrence`) erzeugen für jeden passenden Tag
+          im 14-Tage-Fenster einen eigenen `ScheduleEntry`, der auf denselben Haupt-Task verweist
+        - Pausen des Nutzers blockieren Zeit und werden als Einträge mit `type: BREAK` eingetragen
         - Tasks länger als ein Arbeitstag werden automatisch gesplittet
 
-        Der generierte Plan überschreibt den vorherigen Plan für denselben Zeitraum.
+        **Selektives Löschen (kein blindes Überschreiben):**
+        Beim erneuten Generieren werden **nur offene, ungepinnte** Einträge gelöscht.
+        Einträge mit `isCompleted = true` oder `isPinned = true` bleiben erhalten
+        und blockieren weiterhin ihre Zeitslots – ihre Dauer wird vom verfügbaren
+        Tagesbudget abgezogen, bevor neue Tasks eingeplant werden.
+
+        **Transaktionssicherheit:**
+        Der neue Plan wird vollständig im Speicher berechnet, bevor die alten Einträge
+        gelöscht werden. Schlägt die Berechnung fehl, bleibt der alte Plan erhalten
+        (kein halber Plan in der Datenbank).
+
+        **Warnungen:**
+        Können Tasks nicht vollständig eingeplant werden oder reißen Deadlines,
+        enthält das `warnings`-Array der Response entsprechende Hinweise.
+
+        **Pre-Flight Check – Arbeitszeiten:**
+        Bevor der Algorithmus startet, prüft der Server, ob für den Nutzer
+        Arbeitszeiten (`/users/me/working-hours`) konfiguriert sind.
+        Fehlen diese, wird sofort mit `400` und `detail: "working-hours-missing"`
+        abgebrochen – ohne dass irgendeine Planung stattfindet.
+        Das Frontend soll diesen Fehler abfangen und den Nutzer zur
+        Arbeitszeit-Konfiguration weiterleiten.
       operationId: generateSchedule
       requestBody:
         required: true
@@ -970,9 +1097,155 @@ paths:
               schema:
                 $ref: '#/components/schemas/ScheduleResponse'
         '400':
-          $ref: '#/components/responses/BadRequest'
+          description: |
+            Ungültige Anfrage. Mögliche Ursachen (erkennbar am `detail`-Feld):
+            - `"working-hours-missing"` – Der Nutzer hat noch keine Arbeitszeiten konfiguriert.
+              Das Frontend soll den Nutzer zu `PUT /users/me/working-hours` weiterleiten.
+            - `"invalid-schedule-window"` – Der Zeitraum zwischen `from` und `to` beträgt nicht exakt 14 Tage.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              examples:
+                working-hours-missing:
+                  summary: Keine Arbeitszeiten konfiguriert
+                  value:
+                    type: "https://goaldone.de/problems/bad-request"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "working-hours-missing"
+                    instance: "/api/v1/schedule/generate"
+                invalid-schedule-window:
+                  summary: Zeitraum ist nicht exakt 14 Tage
+                  value:
+                    type: "https://goaldone.de/problems/bad-request"
+                    title: "Bad Request"
+                    status: 400
+                    detail: "invalid-schedule-window"
+                    instance: "/api/v1/schedule/generate"
         '401':
           $ref: '#/components/responses/Unauthorized'
+
+  /schedule/{entryId}/complete:
+    patch:
+      tags: [schedule]
+      summary: Einzelnen Kalenderblock als erledigt markieren (Tagesplan-Ansicht)
+      description: |
+        Markiert einen einzelnen `ScheduleEntry` als erledigt (`isCompleted = true`).
+
+        **Unterschied zu `PATCH /tasks/{taskId}/complete`:**
+        Dieser Endpunkt operiert auf **Kalenderblock-Ebene**, nicht auf Task-Ebene.
+        - Bei **einmaligen Tasks**: entspricht funktional dem globalen Complete –
+          der Block ist erledigt, der Task hat keine weiteren Einträge.
+        - Bei **wiederkehrenden Tasks**: nur dieser eine Block wird abgehakt.
+          Der Haupt-Task (`TaskResponse.status`) bleibt `OPEN` oder `IN_PROGRESS`,
+          und zukünftige Wiederholungsblöcke bleiben erhalten.
+
+        Erledigte Blöcke (`isCompleted = true`) werden beim erneuten Ausführen
+        des Planungsalgorithmus **nicht gelöscht** und blockieren weiterhin ihre Zeit.
+      operationId: completeScheduleEntry
+      parameters:
+        - $ref: '#/components/parameters/EntryIdParam'
+      responses:
+        '200':
+          description: Kalenderblock als erledigt markiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleEntry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Kalenderblock ist bereits erledigt
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: "https://goaldone.de/problems/conflict"
+                title: "Conflict"
+                status: 409
+                detail: "schedule-entry-already-completed"
+                instance: "/api/v1/schedule/3fa85f64-5717-4562-b3fc-2c963f66afa6/complete"
+
+  /schedule/{entryId}/pin:
+    patch:
+      tags: [schedule]
+      summary: Kalenderblock manuell fixieren (pinnen)
+      description: |
+        Setzt `isPinned = true` auf einem `ScheduleEntry`.
+
+        Gepinnte Blöcke werden beim erneuten Ausführen des Planungsalgorithmus
+        **nicht überschrieben** – sie behalten ihre Position und blockieren die Zeit.
+        Dies erlaubt es dem Nutzer, einen Block manuell zu verschieben
+        (clientseitig per Drag & Drop auf ein neues Zeitfenster, dann diesen
+        Endpunkt aufrufen) und ihn gegen automatisches Neueinplanen zu schützen.
+
+        Ein gepinnter Block kann durch erneuten Aufruf dieses Endpunkts
+        **nicht** entpinnt werden – dafür existiert `PATCH /schedule/{entryId}/unpin`.
+      operationId: pinScheduleEntry
+      parameters:
+        - $ref: '#/components/parameters/EntryIdParam'
+      responses:
+        '200':
+          description: Kalenderblock gepinnt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleEntry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Kalenderblock ist bereits gepinnt
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: "https://goaldone.de/problems/conflict"
+                title: "Conflict"
+                status: 409
+                detail: "schedule-entry-already-pinned"
+                instance: "/api/v1/schedule/3fa85f64-5717-4562-b3fc-2c963f66afa6/pin"
+
+  /schedule/{entryId}/unpin:
+    patch:
+      tags: [schedule]
+      summary: Fixierung eines Kalenderblocks aufheben
+      description: |
+        Setzt `isPinned = false` auf einem `ScheduleEntry`.
+        Der Block kann beim nächsten Ausführen des Planungsalgorithmus
+        wieder überschrieben oder verschoben werden.
+      operationId: unpinScheduleEntry
+      parameters:
+        - $ref: '#/components/parameters/EntryIdParam'
+      responses:
+        '200':
+          description: Fixierung aufgehoben
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleEntry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Kalenderblock ist nicht gepinnt
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: "https://goaldone.de/problems/conflict"
+                title: "Conflict"
+                status: 409
+                detail: "schedule-entry-not-pinned"
+                instance: "/api/v1/schedule/3fa85f64-5717-4562-b3fc-2c963f66afa6/unpin"
 
   # ════════════════════════════════════════════
   # SUPER-ADMIN
@@ -1220,6 +1493,15 @@ components:
       in: path
       required: true
       description: UUID der Pause
+      schema:
+        type: string
+        format: uuid
+
+    EntryIdParam:
+      name: entryId
+      in: path
+      required: true
+      description: UUID des ScheduleEntry (Kalenderblocks)
       schema:
         type: string
         format: uuid
@@ -1634,6 +1916,16 @@ components:
           type: string
           format: date
           nullable: true
+        startDate:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-04-07"
+          description: |
+            Frühestes Startdatum des Tasks (optional).
+            Der Planungsalgorithmus plant diesen Task **nicht vor** diesem Datum ein.
+            Nützlich für Tasks, die erst ab einem bestimmten Datum relevant sind
+            (z.B. „nach dem Meeting am Montag starten").
         recurrence:
           $ref: '#/components/schemas/RecurrenceRule'
           nullable: true
@@ -1685,6 +1977,12 @@ components:
           format: date
           nullable: true
           example: "2026-04-30"
+        startDate:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-04-07"
+          description: "Frühestes Startdatum (optional). Der Algorithmus plant den Task nicht vor diesem Datum ein."
         recurrence:
           $ref: '#/components/schemas/RecurrenceRule'
           nullable: true
@@ -1710,6 +2008,12 @@ components:
           type: string
           format: date
           nullable: true
+        startDate:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-04-07"
+          description: "Frühestes Startdatum (optional). Der Algorithmus plant den Task nicht vor diesem Datum ein."
         recurrence:
           $ref: '#/components/schemas/RecurrenceRule'
           nullable: true
@@ -1739,6 +2043,55 @@ components:
           description: "Alle N Einheiten wiederholen (abhängig von type)"
           example: 1
       required: [type, interval]
+
+    # ── Working Hours ─────────────────────────────────────
+
+    WorkingHoursResponse:
+      type: object
+      description: "Wöchentliche Arbeitszeit-Vorlage des Nutzers"
+      properties:
+        days:
+          type: array
+          minItems: 7
+          maxItems: 7
+          description: "Alle 7 Wochentage (Mo–So), jeder genau einmal"
+          items:
+            $ref: '#/components/schemas/WorkingHoursDayEntry'
+      required: [days]
+
+    UpsertWorkingHoursRequest:
+      type: object
+      properties:
+        days:
+          type: array
+          minItems: 7
+          maxItems: 7
+          description: "Alle 7 Wochentage (Mo–So) müssen angegeben werden, jeder genau einmal"
+          items:
+            $ref: '#/components/schemas/WorkingHoursDayEntry'
+      required: [days]
+
+    WorkingHoursDayEntry:
+      type: object
+      description: "Arbeitszeit-Konfiguration für einen einzelnen Wochentag"
+      properties:
+        dayOfWeek:
+          $ref: '#/components/schemas/DayOfWeek'
+        isWorkDay:
+          type: boolean
+          description: "true = Arbeitstag mit Zeitfenster, false = arbeitsfreier Tag"
+          example: true
+        startTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: "08:00"
+          description: "Arbeitsbeginn im Format HH:mm. Pflicht wenn isWorkDay = true."
+        endTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          example: "16:00"
+          description: "Arbeitsende im Format HH:mm. Pflicht wenn isWorkDay = true. Muss nach startTime liegen."
+      required: [dayOfWeek, isWorkDay]
 
     # ── Break ─────────────────────────────────────────────
 
@@ -1802,16 +2155,32 @@ components:
         totalWorkMinutes:
           type: integer
           description: "Summe aller eingeplanten Arbeitsminuten im Zeitraum"
+        warnings:
+          type: array
+          description: |
+            Warnungen des Planungsalgorithmus. Leer wenn kein Problem erkannt wurde.
+            Mögliche Einträge (Beispiele):
+            - `"task-budget-exceeded:uuid"` – Task passt nicht vollständig ins Tagesbudget
+            - `"deadline-at-risk:uuid"` – Task-Deadline kann mit aktuellem Budget nicht eingehalten werden
+            - `"unschedulable-task:uuid"` – Task konnte im Zeitraum gar nicht eingeplant werden
+          items:
+            type: string
+          example:
+            - "deadline-at-risk:3fa85f64-5717-4562-b3fc-2c963f66afa6"
         entries:
           type: array
           items:
             $ref: '#/components/schemas/ScheduleEntry'
-      required: [generatedAt, from, to, totalWorkMinutes, entries]
+      required: [generatedAt, from, to, totalWorkMinutes, warnings, entries]
 
     ScheduleEntry:
       type: object
       description: "Ein eingeplanter Zeitblock im Plan (Task-Block oder Pause)"
       properties:
+        id:
+          type: string
+          format: uuid
+          description: "Eindeutige ID dieses Kalenderblocks. Wird für PATCH /schedule/{entryId}/complete und /pin benötigt."
         date:
           type: string
           format: date
@@ -1827,6 +2196,21 @@ components:
         type:
           type: string
           enum: [TASK, BREAK]
+        isCompleted:
+          type: boolean
+          default: false
+          description: |
+            Gibt an, ob dieser spezifische Kalenderblock abgehakt wurde.
+            Wird über `PATCH /schedule/{entryId}/complete` gesetzt.
+            Bei wiederkehrenden Tasks: nur dieser Block ist erledigt,
+            der Haupt-Task und zukünftige Blöcke bleiben unverändert.
+        isPinned:
+          type: boolean
+          default: false
+          description: |
+            Gibt an, ob dieser Block manuell fixiert wurde (`PATCH /schedule/{entryId}/pin`).
+            Gepinnte Blöcke werden beim erneuten Ausführen des Planungsalgorithmus
+            **nicht** überschrieben – sie blockieren weiterhin die entsprechende Zeit.
         taskId:
           type: string
           format: uuid
@@ -1845,7 +2229,7 @@ components:
           type: string
           nullable: true
           description: "Gesetzt wenn type = BREAK (Convenience-Feld)"
-      required: [date, startTime, endTime, type]
+      required: [id, date, startTime, endTime, type, isCompleted, isPinned]
 
     GenerateScheduleRequest:
       type: object
@@ -1853,13 +2237,18 @@ components:
         from:
           type: string
           format: date
-          description: "Startdatum des zu planenden Zeitraums"
+          description: |
+            Startdatum des zu planenden Zeitraums (ISO 8601).
+            Empfehlung: immer ein Montag, damit der Algorithmus vollständige Wochen plant.
           example: "2026-04-07"
         to:
           type: string
           format: date
-          description: "Enddatum des zu planenden Zeitraums"
-          example: "2026-04-11"
+          description: |
+            Enddatum des zu planenden Zeitraums (ISO 8601).
+            Der Zeitraum beträgt **immer genau 14 Tage** (`from` + 13 Tage).
+            Kürzere oder längere Fenster werden serverseitig mit `400` abgelehnt.
+          example: "2026-04-20"
         maxDailyWorkMinutes:
           type: integer
           default: 240
@@ -1973,3 +2362,11 @@ components:
         - `DAILY`: Täglich (z.B. E-Mails checken)
         - `WEEKLY`: Wöchentlich
         - `MONTHLY`: Monatlich
+
+    DayOfWeek:
+      type: string
+      enum: [MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY]
+      description: |
+        ISO-8601-Wochentag:
+        - `MONDAY` bis `FRIDAY`: Werktage
+        - `SATURDAY`, `SUNDAY`: Wochenende
