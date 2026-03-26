@@ -47,6 +47,25 @@ public class WorkingHoursService {
         return mapToResponse(entries);
     }
 
+    @Transactional(readOnly = true)
+    public boolean isWorkDay(UUID userId, java.time.LocalDate date) {
+        return workingHourEntryRepository.findByUserId(userId).stream()
+                .filter(e -> e.getDayOfWeek() == date.getDayOfWeek())
+                .findFirst()
+                .map(WorkingHourEntry::isWorkDay)
+                .orElse(false);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Optional<WorkWindow> getWorkWindow(UUID userId, java.time.LocalDate date) {
+        return workingHourEntryRepository.findByUserId(userId).stream()
+                .filter(e -> e.getDayOfWeek() == date.getDayOfWeek() && e.isWorkDay())
+                .findFirst()
+                .map(e -> new WorkWindow(e.getStartTime(), e.getEndTime()));
+    }
+
+    public record WorkWindow(LocalTime startTime, LocalTime endTime) {}
+
     @Transactional
     public WorkingHoursResponse upsertWorkingHours(UpsertWorkingHoursRequest request, UUID userId) {
         validateUpsertRequest(request);

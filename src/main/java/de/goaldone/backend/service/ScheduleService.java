@@ -34,8 +34,7 @@ public class ScheduleService {
     private final BreakRepository breakRepository;
     private final UserRepository userRepository;
     private final ValidationService validationService;
-
-    private static final LocalTime DAY_START = LocalTime.of(9, 0);
+    private final WorkingHoursService workingHoursService;
 
     @Transactional(readOnly = true)
     public ScheduleResponse getSchedule(UUID userId, LocalDate from, LocalDate to) {
@@ -86,12 +85,16 @@ public class ScheduleService {
 
         // 4. Iterate over days
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
-            // Only working days (Mon-Fri)
-            if (date.getDayOfWeek() == DayOfWeek.SATURDAY || date.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            // a. Prepare day capacity
+            java.util.Optional<WorkingHoursService.WorkWindow> windowOpt = workingHoursService.getWorkWindow(userId, date);
+            if (windowOpt.isEmpty()) {
                 continue;
             }
+            
+            WorkingHoursService.WorkWindow window = windowOpt.get();
+            LocalTime dayStartTime = window.startTime();
+            LocalTime dayEndTime = window.endTime();
 
-            // a. Prepare day capacity
             int remainingCapacity = maxDailyWorkMinutes;
             List<Task> tasksForToday = new ArrayList<>();
 
@@ -156,7 +159,7 @@ public class ScheduleService {
             tasksForToday.sort(Comparator.comparing(Task::getCognitiveLoad).reversed());
 
             // d. Allocate slots
-            LocalTime currentTime = DAY_START;
+            LocalTime currentTime = dayStartTime;
             for (Task t : tasksForToday) {
                 int durationRemaining = t.getEstimatedDurationMinutes();
                 while (durationRemaining > 0) {
