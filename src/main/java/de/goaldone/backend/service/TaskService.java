@@ -78,6 +78,7 @@ public class TaskService {
                 .cognitiveLoad(de.goaldone.backend.entity.enums.CognitiveLoad.valueOf(request.getCognitiveLoad().getValue()))
                 .estimatedDurationMinutes(request.getEstimatedDurationMinutes())
                 .deadline(request.getDeadline().orElse(null))
+                .startDate(request.getStartDate().orElse(null))
                 .owner(owner)
                 .organization(customOrg)
                 .build();
@@ -146,6 +147,10 @@ public class TaskService {
 
         if (request.getDeadline().isPresent()) {
             task.setDeadline(request.getDeadline().get());
+        }
+
+        if (request.getStartDate().isPresent()) {
+            task.setStartDate(request.getStartDate().get());
         }
 
         if (request.getRecurrence() != null) {
@@ -227,6 +232,7 @@ public class TaskService {
                 .cognitiveLoad(CognitiveLoad.fromValue(task.getCognitiveLoad().name()))
                 .estimatedDurationMinutes(task.getEstimatedDurationMinutes())
                 .deadline(JsonNullable.of(task.getDeadline()))
+                .startDate(JsonNullable.of(task.getStartDate()))
                 .recurrence(recurrenceRule)
                 .ownerId(task.getOwner().getId())
                 .organizationId(task.getOrganization().getId())

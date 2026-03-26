@@ -56,6 +56,12 @@ public class ScheduleEntry {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "is_completed", nullable = false)
+    private boolean isCompleted = false;
+
+    @Column(name = "is_pinned", nullable = false)
+    private boolean isPinned = false;
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();

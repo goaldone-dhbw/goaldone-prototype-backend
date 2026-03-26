@@ -7,6 +7,7 @@ import de.goaldone.backend.entity.Task;
 import de.goaldone.backend.entity.User;
 import de.goaldone.backend.entity.enums.ScheduleEntryType;
 import de.goaldone.backend.entity.enums.TaskStatus;
+import de.goaldone.backend.exception.ConflictException;
 import de.goaldone.backend.exception.ResourceNotFoundException;
 import de.goaldone.backend.model.GenerateScheduleRequest;
 import de.goaldone.backend.model.ScheduleResponse;
@@ -197,6 +198,39 @@ public class ScheduleService {
         return getSchedule(userId, from, to);
     }
 
+    @Transactional
+    public de.goaldone.backend.model.ScheduleEntry completeScheduleEntry(UUID entryId, UUID userId) {
+        ScheduleEntry entry = scheduleEntryRepository.findByIdAndUserId(entryId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Schedule entry not found"));
+        if (entry.isCompleted()) {
+            throw new ConflictException("schedule-entry-already-completed");
+        }
+        entry.setCompleted(true);
+        return mapToScheduleEntryModel(scheduleEntryRepository.save(entry));
+    }
+
+    @Transactional
+    public de.goaldone.backend.model.ScheduleEntry pinScheduleEntry(UUID entryId, UUID userId) {
+        ScheduleEntry entry = scheduleEntryRepository.findByIdAndUserId(entryId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Schedule entry not found"));
+        if (entry.isPinned()) {
+            throw new ConflictException("schedule-entry-already-pinned");
+        }
+        entry.setPinned(true);
+        return mapToScheduleEntryModel(scheduleEntryRepository.save(entry));
+    }
+
+    @Transactional
+    public de.goaldone.backend.model.ScheduleEntry unpinScheduleEntry(UUID entryId, UUID userId) {
+        ScheduleEntry entry = scheduleEntryRepository.findByIdAndUserId(entryId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Schedule entry not found"));
+        if (!entry.isPinned()) {
+            throw new ConflictException("schedule-entry-not-pinned");
+        }
+        entry.setPinned(false);
+        return mapToScheduleEntryModel(scheduleEntryRepository.save(entry));
+    }
+
     private Optional<Break> findNextBreak(List<Break> breaks, LocalTime after) {
         return breaks.stream()
                 .filter(b -> b.getEndTime().isAfter(after))
@@ -235,21 +269,24 @@ public class ScheduleService {
 
     private de.goaldone.backend.model.ScheduleEntry mapToScheduleEntryModel(ScheduleEntry entity) {
         de.goaldone.backend.model.ScheduleEntry model = new de.goaldone.backend.model.ScheduleEntry();
+        model.setId(entity.getId());
         model.setDate(entity.getEntryDate());
         model.setStartTime(entity.getStartTime().toString());
         model.setEndTime(entity.getEndTime().toString());
         model.setType(de.goaldone.backend.model.ScheduleEntry.TypeEnum.valueOf(entity.getEntryType().name()));
-        
+        model.setIsCompleted(entity.isCompleted());
+        model.setIsPinned(entity.isPinned());
+
         if (entity.getTask() != null) {
             model.setTaskId(org.openapitools.jackson.nullable.JsonNullable.of(entity.getTask().getId()));
             model.setTaskTitle(org.openapitools.jackson.nullable.JsonNullable.of(entity.getTask().getTitle()));
         }
-        
+
         if (entity.getBreakEntry() != null) {
             model.setBreakId(org.openapitools.jackson.nullable.JsonNullable.of(entity.getBreakEntry().getId()));
             model.setBreakLabel(org.openapitools.jackson.nullable.JsonNullable.of(entity.getBreakEntry().getLabel()));
         }
-        
+
         return model;
     }
 }

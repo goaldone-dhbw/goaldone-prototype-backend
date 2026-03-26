@@ -42,6 +42,9 @@ public class Task {
     @Column
     private LocalDate deadline;
 
+    @Column(name = "start_date")
+    private LocalDate startDate;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "recurrence_type")
     private RecurrenceType recurrenceType;
