@@ -62,10 +62,8 @@ class ScheduleCollisionFixTest {
     void shouldNotScheduleBreakOnPinnedEntryCollision() {
         // Arrange
         LocalDate today = LocalDate.of(2026, 4, 7);
-        LocalDate to = today.plusDays(13);
         GenerateScheduleRequest request = new GenerateScheduleRequest();
         request.setFrom(today);
-        request.setTo(to);
         request.setMaxDailyWorkMinutes(240);
 
         // Fixed entry at 09:00
@@ -95,7 +93,7 @@ class ScheduleCollisionFixTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
         when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any())).thenReturn(new ArrayList<>());
         when(breakRepository.findByUserId(userId)).thenReturn(List.of(morningBreak));
-        when(scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, today, to)).thenReturn(List.of(pinnedEntry));
+        when(scheduleEntryRepository.findByUserIdAndEntryDateBetween(eq(userId), eq(today), any(LocalDate.class))).thenReturn(List.of(pinnedEntry));
         when(workingHoursService.getWorkWindow(userId, today)).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
 
         // Act
@@ -118,10 +116,8 @@ class ScheduleCollisionFixTest {
     void shouldNotScheduleDuplicateBreaks() {
         // Arrange
         LocalDate today = LocalDate.of(2026, 4, 7);
-        LocalDate to = today.plusDays(13);
         GenerateScheduleRequest request = new GenerateScheduleRequest();
         request.setFrom(today);
-        request.setTo(to);
 
         // Two breaks at 09:00
         Break break1 = Break.builder()
@@ -149,7 +145,7 @@ class ScheduleCollisionFixTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
         when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any())).thenReturn(new ArrayList<>());
         when(breakRepository.findByUserId(userId)).thenReturn(List.of(break1, break2));
-        when(scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, today, to)).thenReturn(new ArrayList<>());
+        when(scheduleEntryRepository.findByUserIdAndEntryDateBetween(eq(userId), eq(today), any(LocalDate.class))).thenReturn(new ArrayList<>());
         when(workingHoursService.getWorkWindow(any(), any())).thenReturn(Optional.of(new WorkingHoursService.WorkWindow(LocalTime.of(9, 0), LocalTime.of(17, 0))));
 
         // Act

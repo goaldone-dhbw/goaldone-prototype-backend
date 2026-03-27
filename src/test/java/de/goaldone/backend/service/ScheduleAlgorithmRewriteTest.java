@@ -62,10 +62,8 @@ class ScheduleAlgorithmRewriteTest {
     void shouldHandleSystemBreaksAndExceedOldBudget() {
         // Arrange
         LocalDate today = LocalDate.of(2026, 3, 26);
-        LocalDate to = today.plusDays(13);
         GenerateScheduleRequest request = new GenerateScheduleRequest();
         request.setFrom(today);
-        request.setTo(to);
         request.setMaxDailyWorkMinutes(120); // 2 hours work block limit
 
         // One big HIGH task: 5 hours (300 mins)

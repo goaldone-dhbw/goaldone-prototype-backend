@@ -27,17 +27,17 @@ public class BreaksController extends BaseController implements BreaksApi {
     @Override
     public ResponseEntity<BreakResponse> createBreak(CreateBreakRequest createBreakRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(breakService.createBreak(createBreakRequest, getCurrentUserId()));
+                .body(breakService.createBreak(createBreakRequest, getCurrentUserId(), getCurrentOrgId()));
     }
 
     @Override
     public ResponseEntity<BreakResponse> updateBreak(UUID breakId, CreateBreakRequest createBreakRequest) {
-        return ResponseEntity.ok(breakService.updateBreak(breakId, createBreakRequest, getCurrentUserId()));
+        return ResponseEntity.ok(breakService.updateBreak(breakId, createBreakRequest, getCurrentUserId(), getCurrentOrgId()));
     }
 
     @Override
     public ResponseEntity<Void> deleteBreak(UUID breakId) {
-        breakService.deleteBreak(breakId, getCurrentUserId());
+        breakService.deleteBreak(breakId, getCurrentUserId(), getCurrentOrgId());
         return ResponseEntity.noContent().build();
     }
 }

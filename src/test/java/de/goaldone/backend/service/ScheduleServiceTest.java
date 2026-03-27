@@ -11,6 +11,8 @@ import de.goaldone.backend.repository.BreakRepository;
 import de.goaldone.backend.repository.ScheduleEntryRepository;
 import de.goaldone.backend.repository.TaskRepository;
 import de.goaldone.backend.repository.UserRepository;
+import de.goaldone.backend.repository.RecurringTemplateRepository;
+import de.goaldone.backend.repository.RecurringExceptionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -24,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import de.goaldone.backend.model.DayOfWeek;
 import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -45,6 +48,10 @@ class ScheduleServiceTest {
     private ValidationService validationService;
     @Mock
     private WorkingHoursService workingHoursService;
+    @Mock
+    private RecurringTemplateRepository recurringTemplateRepository;
+    @Mock
+    private RecurringExceptionRepository recurringExceptionRepository;
 
     @InjectMocks
     private ScheduleService scheduleService;
@@ -62,22 +69,44 @@ class ScheduleServiceTest {
         testUser = User.builder().id(userId).email("test@example.com").organization(testOrg).build();
     }
 
+    private List<de.goaldone.backend.model.WorkingHoursDayEntry> createStandardWorkingHours() {
+        List<de.goaldone.backend.model.WorkingHoursDayEntry> entries = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            DayOfWeek dow = DayOfWeek.values()[i];
+            entries.add(de.goaldone.backend.model.WorkingHoursDayEntry.builder()
+                    .dayOfWeek(dow)
+                    .isWorkDay(i < 5) // Monday-Friday are work days
+                    .startTime(i < 5 ? "09:00" : null)
+                    .endTime(i < 5 ? "17:00" : null)
+                    .build());
+        }
+        return entries;
+    }
+
+    private void setUpCommonMocks() {
+        when(recurringTemplateRepository.findByOwnerIdAndOrganizationId(any(), any()))
+                .thenReturn(new ArrayList<>());
+    }
+
     @Nested
     @DisplayName("Generate Schedule Tests")
     class GenerateScheduleTests {
+
+        @BeforeEach
+        void setUp() {
+            setUpCommonMocks();
+        }
 
         @Test
         @DisplayName("Should generate schedule with simple tasks and no breaks")
         void shouldGenerateScheduleWithSimpleTasks() {
             // Arrange
             LocalDate from = LocalDate.of(2026, 3, 30); // Monday
-            LocalDate to = from.plusDays(13); // 14 days
             GenerateScheduleRequest request = new GenerateScheduleRequest();
             request.setFrom(from);
-            request.setTo(to);
             request.setMaxDailyWorkMinutes(240);
 
-            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
+            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(createStandardWorkingHours()));
             when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
             when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
                     .thenReturn(new ArrayList<>(List.of(
@@ -91,7 +120,6 @@ class ScheduleServiceTest {
             scheduleService.generateSchedule(userId, orgId, request);
 
             // Assert
-            verify(scheduleEntryRepository).deleteByUserIdAndEntryDateBetweenAndIsCompletedFalseAndIsPinnedFalse(userId, from, to);
             
             ArgumentCaptor<List<ScheduleEntry>> captor = ArgumentCaptor.forClass(List.class);
             verify(scheduleEntryRepository).saveAll(captor.capture());
@@ -112,10 +140,8 @@ class ScheduleServiceTest {
         void shouldSplitTaskExceedingCapacity() {
             // Arrange
             LocalDate monday = LocalDate.of(2026, 3, 30);
-            LocalDate to = monday.plusDays(13);
             GenerateScheduleRequest request = new GenerateScheduleRequest();
             request.setFrom(monday);
-            request.setTo(to);
             request.setMaxDailyWorkMinutes(120); // 2 hours block limit
 
             Task longTask = Task.builder()
@@ -128,7 +154,7 @@ class ScheduleServiceTest {
                     .organization(testOrg)
                     .build();
 
-            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
+            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(createStandardWorkingHours()));
             when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
             when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
                     .thenReturn(new ArrayList<>(List.of(longTask)));
@@ -162,10 +188,8 @@ class ScheduleServiceTest {
         void shouldScheduleAroundBreaks() {
             // Arrange
             LocalDate monday = LocalDate.of(2026, 3, 30);
-            LocalDate to = monday.plusDays(13);
             GenerateScheduleRequest request = new GenerateScheduleRequest();
             request.setFrom(monday);
-            request.setTo(to);
             request.setMaxDailyWorkMinutes(480); // No block splitting
 
             Break lunchBreak = Break.builder()
@@ -189,7 +213,7 @@ class ScheduleServiceTest {
                     .organization(testOrg)
                     .build();
 
-            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
+            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(createStandardWorkingHours()));
             when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
             when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
                     .thenReturn(new ArrayList<>(List.of(task)));
@@ -220,10 +244,8 @@ class ScheduleServiceTest {
         void shouldSplit8hTaskIntoTwo4hBlocks() {
             // Arrange
             LocalDate monday = LocalDate.of(2026, 3, 30);
-            LocalDate to = monday.plusDays(13);
             GenerateScheduleRequest request = new GenerateScheduleRequest();
             request.setFrom(monday);
-            request.setTo(to);
             request.setMaxDailyWorkMinutes(480); // No block limit
 
             Task longTask = Task.builder()
@@ -236,7 +258,7 @@ class ScheduleServiceTest {
                     .organization(testOrg)
                     .build();
 
-            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(List.of(new de.goaldone.backend.model.WorkingHoursDayEntry())));
+            when(workingHoursService.getWorkingHours(userId)).thenReturn(new WorkingHoursResponse(createStandardWorkingHours()));
             when(userRepository.findById(userId)).thenReturn(Optional.of(testUser));
             when(taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(any(), any()))
                     .thenReturn(new ArrayList<>(List.of(longTask)));

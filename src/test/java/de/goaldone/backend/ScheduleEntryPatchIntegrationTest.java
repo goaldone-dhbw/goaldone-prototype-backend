@@ -63,7 +63,7 @@ class ScheduleEntryPatchIntegrationTest {
 
         // Assert
         assertNotNull(result);
-        assertEquals(testEntryId, result.getId());
+        assertEquals(testEntryId, result.getEntryId().get());
         assertTrue(result.getIsCompleted());
         verify(scheduleEntryRepository).findByIdAndUserId(testEntryId, testUserId);
         verify(scheduleEntryRepository).save(any());
@@ -114,7 +114,7 @@ class ScheduleEntryPatchIntegrationTest {
 
         // Assert
         assertNotNull(result);
-        assertEquals(testEntryId, result.getId());
+        assertEquals(testEntryId, result.getEntryId().get());
         assertTrue(result.getIsPinned());
         verify(scheduleEntryRepository).findByIdAndUserId(testEntryId, testUserId);
         verify(scheduleEntryRepository).save(any());
@@ -154,7 +154,7 @@ class ScheduleEntryPatchIntegrationTest {
 
         // Assert
         assertNotNull(result);
-        assertEquals(testEntryId, result.getId());
+        assertEquals(testEntryId, result.getEntryId().get());
         assertFalse(result.getIsPinned());
         verify(scheduleEntryRepository).findByIdAndUserId(testEntryId, testUserId);
         verify(scheduleEntryRepository).save(any());

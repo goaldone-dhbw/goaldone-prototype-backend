@@ -1,19 +1,22 @@
 package de.goaldone.backend.service;
 
 import de.goaldone.backend.entity.Break;
-import de.goaldone.backend.entity.Organization;
+import de.goaldone.backend.entity.RecurringException;
+import de.goaldone.backend.entity.RecurringTemplate;
 import de.goaldone.backend.entity.ScheduleEntry;
 import de.goaldone.backend.entity.Task;
-import de.goaldone.backend.entity.User;
 import de.goaldone.backend.entity.enums.CognitiveLoad;
 import de.goaldone.backend.entity.enums.ScheduleEntryType;
 import de.goaldone.backend.entity.enums.TaskStatus;
 import de.goaldone.backend.exception.ConflictException;
 import de.goaldone.backend.exception.ResourceNotFoundException;
 import de.goaldone.backend.model.GenerateScheduleRequest;
+import de.goaldone.backend.model.RecurringExceptionType;
 import de.goaldone.backend.model.ScheduleResponse;
 import de.goaldone.backend.model.WorkingHoursResponse;
 import de.goaldone.backend.repository.BreakRepository;
+import de.goaldone.backend.repository.RecurringExceptionRepository;
+import de.goaldone.backend.repository.RecurringTemplateRepository;
 import de.goaldone.backend.repository.ScheduleEntryRepository;
 import de.goaldone.backend.repository.TaskRepository;
 import de.goaldone.backend.repository.UserRepository;
@@ -22,8 +25,22 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.*;
-import java.util.*;
+import java.time.DayOfWeek;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -34,293 +51,381 @@ public class ScheduleService {
     private final ScheduleEntryRepository scheduleEntryRepository;
     private final TaskRepository taskRepository;
     private final BreakRepository breakRepository;
+    private final RecurringTemplateRepository recurringTemplateRepository;
+    private final RecurringExceptionRepository recurringExceptionRepository;
     private final UserRepository userRepository;
     private final WorkingHoursService workingHoursService;
 
     @Transactional(readOnly = true)
     public ScheduleResponse getSchedule(UUID userId, LocalDate from, LocalDate to) {
-        List<ScheduleEntry> entries = scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, from, to);
-        return mapToScheduleResponse(from, to, entries, new ArrayList<>());
+        // Load real ScheduleEntries (ONE_TIME)
+        List<ScheduleEntry> realEntries = scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, from, to);
+        List<de.goaldone.backend.model.ScheduleEntry> result = realEntries.stream()
+                .map(this::toScheduleEntryDto)
+                .collect(Collectors.toList());
+
+        // Load RecurringTemplates and build virtual entries (RECURRING) on-the-fly
+        List<RecurringTemplate> templates = recurringTemplateRepository.findByOwnerIdAndOrganizationId(
+                userId, getCurrentOrgId(userId));
+
+        // Load exceptions for the date range
+        List<UUID> templateIds = templates.stream().map(RecurringTemplate::getId).collect(Collectors.toList());
+        Map<String, RecurringException> exceptionsMap = new HashMap<>();
+        if (!templateIds.isEmpty()) {
+            recurringExceptionRepository.findByTemplateIdInAndOccurrenceDateBetween(templateIds, from, to)
+                    .forEach(ex -> exceptionsMap.put(ex.getTemplate().getId() + "_" + ex.getOccurrenceDate(), ex));
+        }
+
+        // Get working hours for slot calculation
+        Map<DayOfWeek, WorkingHourEntry> workingHours = loadWorkingHoursMap(userId);
+
+        for (RecurringTemplate template : templates) {
+            for (LocalDate day = from; !day.isAfter(to); day = day.plusDays(1)) {
+                if (!recurrenceMatchesDay(template.getRecurrenceType(), template.getRecurrenceInterval(),
+                        template.getCreatedAt().toLocalDate(), day)) {
+                    continue;
+                }
+
+                String key = template.getId() + "_" + day;
+                RecurringException ex = exceptionsMap.get(key);
+
+                // Skip if explicitly skipped
+                if (ex != null && ex.getType() == RecurringExceptionType.SKIPPED) {
+                    continue;
+                }
+
+                LocalDate displayDate = day;
+                LocalTime displayStart = template.getPreferredStartTime();
+                if (displayStart == null) {
+                    Optional<WorkingHourEntry> optWorkDay = getWorkingHourEntry(workingHours, day.getDayOfWeek());
+                    displayStart = optWorkDay.map(WorkingHourEntry::getStartTime).orElse(LocalTime.of(9, 0));
+                }
+
+                // Handle rescheduled
+                if (ex != null && ex.getType() == RecurringExceptionType.RESCHEDULED) {
+                    displayDate = ex.getNewDate();
+                    if (ex.getNewStartTime() != null) {
+                        displayStart = ex.getNewStartTime();
+                    }
+                }
+
+                de.goaldone.backend.model.ScheduleEntry dto = new de.goaldone.backend.model.ScheduleEntry();
+                dto.setSource(de.goaldone.backend.model.ScheduleEntry.SourceEnum.RECURRING);
+                dto.setTemplateId(org.openapitools.jackson.nullable.JsonNullable.of(template.getId()));
+                dto.setTemplateTitle(org.openapitools.jackson.nullable.JsonNullable.of(template.getTitle()));
+                dto.setOccurrenceDate(org.openapitools.jackson.nullable.JsonNullable.of(day));
+                dto.setDate(displayDate);
+                dto.setStartTime(displayStart.toString());
+                dto.setEndTime(displayStart.plusMinutes(template.getDurationMinutes()).toString());
+                dto.setType(de.goaldone.backend.model.ScheduleEntry.TypeEnum.TASK);
+                dto.setIsCompleted(ex != null && ex.getType() == RecurringExceptionType.COMPLETED);
+                dto.setIsPinned(ex != null && ex.getType() == RecurringExceptionType.PINNED);
+
+                result.add(dto);
+            }
+        }
+
+        // Sort by date and startTime
+        result.sort(Comparator.comparing(de.goaldone.backend.model.ScheduleEntry::getDate)
+                .thenComparing(e -> LocalTime.parse(e.getStartTime())));
+
+        ScheduleResponse response = new ScheduleResponse();
+        response.setFrom(from);
+        response.setTo(to);
+        response.setGeneratedAt(OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC));
+        response.setTotalWorkMinutes(0);
+        response.setWarnings(new ArrayList<>());
+        response.setEntries(result);
+
+        return response;
     }
 
     @Transactional
     public ScheduleResponse generateSchedule(UUID userId, UUID orgId, GenerateScheduleRequest request) {
         LocalDate from = request.getFrom();
-        LocalDate to = request.getTo();
-        int maxBlockMinutes = request.getMaxDailyWorkMinutes() != null ? request.getMaxDailyWorkMinutes() : 240;
+        int maxDailyWorkMinutes = request.getMaxDailyWorkMinutes() != null ? request.getMaxDailyWorkMinutes() : 240;
 
         // 1. Pre-flight Check
-        WorkingHoursResponse workingHours;
+        WorkingHoursResponse workingHoursResp;
         try {
-            workingHours = workingHoursService.getWorkingHours(userId);
+            workingHoursResp = workingHoursService.getWorkingHours(userId);
         } catch (ResourceNotFoundException e) {
-            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "working-hours-missing");
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "working-hours-missing");
         }
 
-        if (workingHours == null || workingHours.getDays() == null || workingHours.getDays().isEmpty()) {
-            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "working-hours-missing");
+        if (workingHoursResp == null || workingHoursResp.getDays() == null || workingHoursResp.getDays().isEmpty()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "working-hours-missing");
         }
 
-        if (java.time.temporal.ChronoUnit.DAYS.between(from, to) != 13) {
-            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid-schedule-window");
+        Map<DayOfWeek, WorkingHourEntry> workingHours = loadWorkingHoursMap(userId);
+
+        // 2. Load blocker lists once
+        List<ScheduleEntry> completedEntries = scheduleEntryRepository.findByUserIdAndEntryDateGreaterThanEqualAndIsCompletedTrue(userId, from);
+        List<ScheduleEntry> pinnedEntries = scheduleEntryRepository.findByUserIdAndEntryDateGreaterThanEqualAndIsPinnedTrue(userId, from);
+        List<Break> userBreaks = breakRepository.findByUserId(userId);
+        List<RecurringTemplate> userTemplates = recurringTemplateRepository.findByOwnerIdAndOrganizationId(userId, orgId);
+
+        // Load exceptions
+        List<UUID> templateIds = userTemplates.stream().map(RecurringTemplate::getId).collect(Collectors.toList());
+        final Map<String, RecurringException> exceptionsMap = new HashMap<>();
+        if (!templateIds.isEmpty()) {
+            recurringExceptionRepository.findByTemplateIdInAndOccurrenceDateBetween(templateIds, from, from.plusYears(1))
+                    .forEach(ex -> exceptionsMap.put(ex.getTemplate().getId() + "_" + ex.getOccurrenceDate(), ex));
         }
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        
-        if (user.getOrganization() == null || !user.getOrganization().getId().equals(orgId)) {
-            throw new org.springframework.security.access.AccessDeniedException("User organization mismatch");
-        }
-        
-        Organization organization = user.getOrganization();
+        // 3. Load only one-time tasks (recurrenceType IS NULL)
+        List<Task> allTasks = taskRepository.findByOwnerIdAndStatusInAndRecurrenceTypeIsNull(userId,
+                List.of(TaskStatus.OPEN, TaskStatus.IN_PROGRESS));
 
-        // 2. Load Tasks
-        List<Task> allTasks = taskRepository.findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(
-                userId, Arrays.asList(TaskStatus.OPEN, TaskStatus.IN_PROGRESS));
-        
-        // Stable sort: Deadline ASC, CognitiveLoad DESC
-        allTasks.sort(Comparator.comparing(Task::getDeadline, Comparator.nullsLast(Comparator.naturalOrder()))
-                .thenComparing(Task::getCognitiveLoad, Comparator.reverseOrder()));
+        // 4. Initialize task pool
+        List<TaskPoolEntry> pool = allTasks.stream()
+                .map(t -> new TaskPoolEntry(t, t.getEstimatedDurationMinutes()))
+                .collect(Collectors.toList());
 
-        Map<UUID, Integer> remainingOneTimeMinutes = new HashMap<>();
-        List<Task> oneTimeTasks = new ArrayList<>();
-        List<Task> recurringTasks = new ArrayList<>();
-        
-        for (Task t : allTasks) {
-            if (t.getRecurrenceType() != null) {
-                recurringTasks.add(t);
-            } else {
-                oneTimeTasks.add(t);
-                remainingOneTimeMinutes.put(t.getId(), t.getEstimatedDurationMinutes());
-            }
-        }
-
-        List<Break> breaks = breakRepository.findByUserId(userId);
-        List<ScheduleEntry> existingEntries = scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, from, to);
-        Map<LocalDate, List<ScheduleEntry>> fixedEntriesPerDay = existingEntries.stream()
-                .filter(e -> e.isCompleted() || e.isPinned())
-                .collect(Collectors.groupingBy(ScheduleEntry::getEntryDate));
-
-        List<ScheduleEntry> newEntries = new ArrayList<>();
+        LocalDate currentDay = from;
+        LocalDate lastScheduledDay = null;
+        List<ScheduleEntry> result = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
-        Instant generationTime = Instant.now();
 
-        // 3. Algorithm Calculation
-        for (LocalDate currentDay = from; !currentDay.isAfter(to); currentDay = currentDay.plusDays(1)) {
-            java.util.Optional<WorkingHoursService.WorkWindow> windowOpt = workingHoursService.getWorkWindow(userId, currentDay);
-            if (windowOpt.isEmpty()) continue;
-            
-            WorkingHoursService.WorkWindow window = windowOpt.get();
-            LocalTime currentTime = window.startTime();
-            LocalTime dayEndTime = window.endTime();
-            
-            List<ScheduleEntry> fixedToday = fixedEntriesPerDay.getOrDefault(currentDay, new ArrayList<>());
-            List<TimeBlock> blockers = new ArrayList<>();
-            for (ScheduleEntry fe : fixedToday) { blockers.add(new TimeBlock(fe.getStartTime(), fe.getEndTime())); }
-            
-            // Collect breaks for the day
-            for (Break b : breaks) {
-                if (matchesRecurrence(b.getRecurrenceType(), b.getRecurrenceInterval(), null, b.getCreatedAt().atZone(ZoneOffset.UTC).toLocalDate(), currentDay)) {
-                    // Check for collision with fixed entries
-                    if (blockers.stream().noneMatch(fe -> fe.start().equals(b.getStartTime()))) {
-                        ScheduleEntry breakEntry = ScheduleEntry.builder()
-                                .user(user)
-                                .organization(organization)
-                                .breakEntry(b)
-                                .entryDate(currentDay)
-                                .startTime(b.getStartTime())
-                                .endTime(b.getEndTime())
-                                .entryType(ScheduleEntryType.BREAK)
-                                .generatedAt(generationTime)
-                                .build();
-                        newEntries.add(breakEntry);
-                        blockers.add(new TimeBlock(b.getStartTime(), b.getEndTime()));
-                    }
+        // 5. Outer Loop: Dynamic Horizon
+        while (!pool.isEmpty()) {
+            // 5.1 Deadline Pruning
+            for (int i = pool.size() - 1; i >= 0; i--) {
+                TaskPoolEntry e = pool.get(i);
+                if (e.getTask().getDeadline() != null && e.getTask().getDeadline().isBefore(currentDay)) {
+                    warnings.add("deadline-missed:" + e.getTask().getId());
+                    pool.remove(i);
                 }
             }
-            blockers.sort(Comparator.comparing(TimeBlock::start));
+            if (pool.isEmpty()) break;
 
-            // Tasks to schedule today
-            List<Task> tasksForToday = new ArrayList<>();
-            for (Task rt : recurringTasks) {
-                if ((rt.getStartDate() == null || !currentDay.isBefore(rt.getStartDate())) &&
-                    matchesRecurrence(rt.getRecurrenceType(), rt.getRecurrenceInterval(), rt.getStartDate(), from, currentDay)) {
-                    tasksForToday.add(rt);
+            // 5.2 Skip non-working days
+            Optional<WorkingHourEntry> optWorkDay = getWorkingHourEntry(workingHours, currentDay.getDayOfWeek());
+            if (optWorkDay.isEmpty() || !optWorkDay.get().isWorkDay()) {
+                currentDay = currentDay.plusDays(1);
+                continue;
+            }
+            WorkingHourEntry workDay = optWorkDay.get();
+            final LocalDate dayForFilter = currentDay;
+
+            // 5.3 startDate Filter: only ready tasks
+            List<TaskPoolEntry> readyTasks = pool.stream()
+                    .filter(e -> e.getTask().getStartDate() == null || !e.getTask().getStartDate().isAfter(dayForFilter))
+                    .collect(Collectors.toList());
+
+            if (readyTasks.isEmpty()) {
+                currentDay = currentDay.plusDays(1);
+                continue;
+            }
+
+            // 5.4 MSTF: Calculate slack and sort
+            for (TaskPoolEntry e : readyTasks) {
+                if (e.getTask().getDeadline() == null) {
+                    e.setSlack(Integer.MAX_VALUE);
+                } else {
+                    int needed = (int) Math.ceil((double) e.getRestDurationMinutes() / maxDailyWorkMinutes);
+                    e.setSlack(countWorkdaysBetween(currentDay, e.getTask().getDeadline(), workingHours) - needed);
                 }
             }
-            // One-time tasks that have remaining time and are allowed to start
-            for (Task t : oneTimeTasks) {
-                if (remainingOneTimeMinutes.get(t.getId()) > 0 && (t.getStartDate() == null || !currentDay.isBefore(t.getStartDate()))) {
-                    // Create a virtual task with remaining time for the day filler
-                    tasksForToday.add(Task.builder()
-                            .id(t.getId())
-                            .title(t.getTitle())
-                            .cognitiveLoad(t.getCognitiveLoad())
-                            .estimatedDurationMinutes(remainingOneTimeMinutes.get(t.getId()))
-                            .build());
+            readyTasks.sort(Comparator.comparingInt(TaskPoolEntry::getSlack)
+                    .thenComparingInt(e -> e.getTask().getCognitiveLoad().ordinal()));
+
+            // 5.5 Lazy budget calculation
+            int budget = computeBudget(currentDay, maxDailyWorkMinutes, completedEntries, pinnedEntries,
+                    userBreaks, userTemplates, exceptionsMap);
+            if (budget <= 0) {
+                currentDay = currentDay.plusDays(1);
+                continue;
+            }
+
+            // 5.6 Inner Loop: Schedule tasks for the day
+            for (TaskPoolEntry entry : readyTasks) {
+                if (budget <= 0) break;
+
+                if (entry.getRestDurationMinutes() <= budget) {
+                    result.add(createEntry(entry.getTask(), currentDay, entry.getRestDurationMinutes(), workDay));
+                    budget -= entry.getRestDurationMinutes();
+                    lastScheduledDay = currentDay;
+                    pool.remove(entry);
+                } else {
+                    result.add(createEntry(entry.getTask(), currentDay, budget, workDay));
+                    entry.setRestDurationMinutes(entry.getRestDurationMinutes() - budget);
+                    lastScheduledDay = currentDay;
+                    budget = 0;
                 }
             }
-            // Sort today's tasks: HIGH load first
-            tasksForToday.sort(Comparator.comparing(Task::getCognitiveLoad, Comparator.reverseOrder()));
 
-            int continuousHighWorkMinutes = 0;
-            Map<UUID, Task> taskMap = allTasks.stream().collect(Collectors.toMap(Task::getId, t -> t));
-
-            for (Task t : tasksForToday) {
-                int durationRemaining = t.getEstimatedDurationMinutes();
-                
-                while (durationRemaining > 0 && currentTime.isBefore(dayEndTime)) {
-                    // Skip blockers
-                    Optional<TimeBlock> blocker = findOverlappingBlocker(blockers, currentTime);
-                    if (blocker.isPresent()) {
-                        currentTime = blocker.get().end();
-                        continuousHighWorkMinutes = 0; // Reset on any blocker (break or fixed entry)
-                        continue;
-                    }
-
-                    Optional<TimeBlock> nextBlocker = findNextBlocker(blockers, currentTime);
-                    LocalTime nextInterrupt = nextBlocker.map(TimeBlock::start).orElse(dayEndTime);
-                    int availableMins = (int) Duration.between(currentTime, nextInterrupt).toMinutes();
-
-                    if (availableMins <= 0) {
-                        currentTime = nextInterrupt;
-                        continue;
-                    }
-
-                    // System Break Logic for HIGH tasks
-                    if (t.getCognitiveLoad() == CognitiveLoad.HIGH) {
-                        if (continuousHighWorkMinutes >= maxBlockMinutes) {
-                            // Insert System Break
-                            int breakDuration = maxBlockMinutes / 2;
-                            LocalTime breakEnd = currentTime.plusMinutes(breakDuration);
-                            if (breakEnd.isAfter(dayEndTime)) breakEnd = dayEndTime;
-
-                            // Create a synthetic break entity for the system break
-                            Break systemBreak = Break.builder()
-                                    .label("System Break")
-                                    .user(user)
-                                    .startTime(currentTime)
-                                    .endTime(breakEnd)
-                                    .recurrenceType(de.goaldone.backend.entity.enums.RecurrenceType.DAILY)
-                                    .recurrenceInterval(1)
-                                    .build();
-
-                            newEntries.add(ScheduleEntry.builder()
-                                    .user(user)
-                                    .organization(organization)
-                                    .breakEntry(systemBreak)
-                                    .entryDate(currentDay)
-                                    .startTime(currentTime)
-                                    .endTime(breakEnd)
-                                    .entryType(ScheduleEntryType.BREAK)
-                                    .generatedAt(generationTime)
-                                    .build());
-
-                            currentTime = breakEnd;
-                            continuousHighWorkMinutes = 0;
-                            continue;
-                        }
-
-                        int allowedInBlock = maxBlockMinutes - continuousHighWorkMinutes;
-                        int scheduled = Math.min(Math.min(availableMins, durationRemaining), allowedInBlock);
-                        LocalTime slotEnd = currentTime.plusMinutes(scheduled);
-
-                        newEntries.add(ScheduleEntry.builder()
-                                .user(user)
-                                .organization(organization)
-                                .task(taskMap.get(t.getId()))
-                                .entryDate(currentDay)
-                                .startTime(currentTime)
-                                .endTime(slotEnd)
-                                .entryType(ScheduleEntryType.TASK)
-                                .generatedAt(generationTime)
-                                .build());
-
-                        durationRemaining -= scheduled;
-                        if (remainingOneTimeMinutes.containsKey(t.getId())) {
-                            remainingOneTimeMinutes.put(t.getId(), remainingOneTimeMinutes.get(t.getId()) - scheduled);
-                        }
-                        continuousHighWorkMinutes += scheduled;
-                        currentTime = slotEnd;
-                    } else {
-                        // LOW cognitive load task
-                        int scheduled = Math.min(availableMins, durationRemaining);
-                        LocalTime slotEnd = currentTime.plusMinutes(scheduled);
-
-                        newEntries.add(ScheduleEntry.builder()
-                                .user(user)
-                                .organization(organization)
-                                .task(taskMap.get(t.getId()))
-                                .entryDate(currentDay)
-                                .startTime(currentTime)
-                                .endTime(slotEnd)
-                                .entryType(ScheduleEntryType.TASK)
-                                .generatedAt(generationTime)
-                                .build());
-
-                        durationRemaining -= scheduled;
-                        if (remainingOneTimeMinutes.containsKey(t.getId())) {
-                            remainingOneTimeMinutes.put(t.getId(), remainingOneTimeMinutes.get(t.getId()) - scheduled);
-                        }
-                        // For simplicity, LOW tasks don't count towards HIGH block but they don't reset it either?
-                        // User said: "Hochleistungsaufgaben nur maximal 4h am Stück". 
-                        // Let's assume LOW tasks can be interspersed without resetting the HIGH block count.
-                        currentTime = slotEnd;
-                    }
-                }
-            }
+            currentDay = currentDay.plusDays(1);
         }
 
-        // 4. Post-check for deadlines
-        for (Task t : oneTimeTasks) {
-            if (remainingOneTimeMinutes.get(t.getId()) > 0 && t.getDeadline() != null) {
-                if (!t.getDeadline().isAfter(to)) {
-                    warnings.add("deadline-at-risk:" + t.getId());
-                }
-            }
-        }
-
-        // 5. Selectively delete and save
-        scheduleEntryRepository.deleteByUserIdAndEntryDateBetweenAndIsCompletedFalseAndIsPinnedFalse(userId, from, to);
+        // 6. Persist
+        // Delete existing entries starting from 'from' that are not completed/pinned
+        scheduleEntryRepository.deleteByUserIdAndEntryDateGreaterThanEqualAndIsCompletedFalseAndIsPinnedFalse(userId, from);
         scheduleEntryRepository.flush();
-        scheduleEntryRepository.saveAll(newEntries);
+        scheduleEntryRepository.saveAll(result);
 
-        return mapToScheduleResponse(from, to, scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, from, to), warnings);
+        // 7. Build response
+        LocalDate responseTo = lastScheduledDay != null ? lastScheduledDay : from;
+        int totalWorkMinutes = result.stream()
+                .filter(e -> e.getEntryType() == ScheduleEntryType.TASK)
+                .mapToInt(e -> (int) ChronoUnit.MINUTES.between(e.getStartTime(), e.getEndTime()))
+                .sum();
+
+        ScheduleResponse response = new ScheduleResponse();
+        response.setFrom(from);
+        response.setTo(responseTo);
+        response.setGeneratedAt(OffsetDateTime.ofInstant(Instant.now(), ZoneOffset.UTC));
+        response.setTotalWorkMinutes(totalWorkMinutes);
+        response.setWarnings(warnings);
+        response.setEntries(result.stream().map(this::toScheduleEntryDto).collect(Collectors.toList()));
+
+        return response;
     }
 
-    private boolean matchesRecurrence(de.goaldone.backend.entity.enums.RecurrenceType type, Integer interval, LocalDate startDate, LocalDate createdAt, LocalDate currentDay) {
+    /**
+     * Lazy budget calculation per day.
+     * Returns the available budget (in minutes) after accounting for all blockers.
+     */
+    private int computeBudget(LocalDate day, int maxDailyWorkMinutes,
+                             List<ScheduleEntry> completedEntries,
+                             List<ScheduleEntry> pinnedEntries,
+                             List<Break> userBreaks,
+                             List<RecurringTemplate> userTemplates,
+                             Map<String, RecurringException> exceptionsMap) {
+        int blocked = 0;
+
+        // Completed entries on this day
+        for (ScheduleEntry e : completedEntries) {
+            if (e.getEntryDate().equals(day)) {
+                blocked += (int) ChronoUnit.MINUTES.between(e.getStartTime(), e.getEndTime());
+            }
+        }
+
+        // Pinned entries on this day
+        for (ScheduleEntry e : pinnedEntries) {
+            if (e.getEntryDate().equals(day)) {
+                blocked += (int) ChronoUnit.MINUTES.between(e.getStartTime(), e.getEndTime());
+            }
+        }
+
+        // Breaks on this day (using BreakService helper)
+        for (Break b : userBreaks) {
+            if (BreakService.breaksBlocksDay(b, day)) {
+                blocked += ChronoUnit.MINUTES.between(b.getStartTime(), b.getEndTime());
+            }
+        }
+
+        // RecurringTemplates (unless SKIPPED)
+        for (RecurringTemplate t : userTemplates) {
+            if (recurrenceMatchesDay(t.getRecurrenceType(), t.getRecurrenceInterval(),
+                    t.getCreatedAt().toLocalDate(), day)) {
+                String key = t.getId() + "_" + day;
+                RecurringException ex = exceptionsMap.get(key);
+                if (ex == null || ex.getType() != RecurringExceptionType.SKIPPED) {
+                    blocked += t.getDurationMinutes();
+                }
+            }
+        }
+
+        return Math.max(0, maxDailyWorkMinutes - blocked);
+    }
+
+    /**
+     * Create a ScheduleEntry for a task on a given day with a given duration.
+     */
+    private ScheduleEntry createEntry(Task task, LocalDate day, int durationMinutes, WorkingHourEntry workDay) {
+        LocalTime startTime = workDay.getStartTime();
+        LocalTime endTime = startTime.plusMinutes(durationMinutes);
+
+        return ScheduleEntry.builder()
+                .user(task.getOwner())
+                .organization(task.getOrganization())
+                .task(task)
+                .entryDate(day)
+                .startTime(startTime)
+                .endTime(endTime)
+                .entryType(ScheduleEntryType.TASK)
+                .generatedAt(Instant.now())
+                .build();
+    }
+
+    /**
+     * Count working days between start (inclusive) and end (inclusive).
+     */
+    private int countWorkdaysBetween(LocalDate start, LocalDate end, Map<DayOfWeek, WorkingHourEntry> workingHours) {
+        int count = 0;
+        for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
+            Optional<WorkingHourEntry> optEntry = getWorkingHourEntry(workingHours, d.getDayOfWeek());
+            if (optEntry.isPresent() && optEntry.get().isWorkDay()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Check if a recurrence rule matches a given day.
+     * MVP-focused: all WEEKLY/MONTHLY Tage that match the day-of-week/day-of-month are included.
+     */
+    private boolean recurrenceMatchesDay(de.goaldone.backend.entity.enums.RecurrenceType type, Integer interval,
+                                        LocalDate baseDate, LocalDate currentDay) {
         if (type == null) return false;
         if (interval == null || interval < 1) interval = 1;
-        
-        LocalDate baseDate = startDate != null ? startDate : createdAt;
+
         if (currentDay.isBefore(baseDate)) return false;
 
         switch (type) {
             case DAILY:
-                return java.time.temporal.ChronoUnit.DAYS.between(baseDate, currentDay) % interval == 0;
+                return ChronoUnit.DAYS.between(baseDate, currentDay) % interval == 0;
             case WEEKLY:
-                return baseDate.getDayOfWeek() == currentDay.getDayOfWeek() && 
-                       (java.time.temporal.ChronoUnit.WEEKS.between(baseDate, currentDay) % interval == 0);
+                return baseDate.getDayOfWeek() == currentDay.getDayOfWeek() &&
+                        (ChronoUnit.WEEKS.between(baseDate, currentDay) % interval == 0);
             case MONTHLY:
                 return baseDate.getDayOfMonth() == currentDay.getDayOfMonth() &&
-                       (java.time.temporal.ChronoUnit.MONTHS.between(baseDate, currentDay) % interval == 0);
+                        (ChronoUnit.MONTHS.between(baseDate, currentDay) % interval == 0);
             default:
                 return false;
         }
     }
 
-    private record TimeBlock(LocalTime start, LocalTime end) {}
-
-    private Optional<TimeBlock> findOverlappingBlocker(List<TimeBlock> blockers, LocalTime time) {
-        return blockers.stream()
-                .filter(b -> !time.isBefore(b.start()) && time.isBefore(b.end()))
-                .findFirst();
+    /**
+     * Load working hours into a map keyed by DayOfWeek.
+     */
+    private Map<DayOfWeek, WorkingHourEntry> loadWorkingHoursMap(UUID userId) {
+        WorkingHoursResponse resp = workingHoursService.getWorkingHours(userId);
+        return resp.getDays().stream()
+                .map(dayDto -> {
+                    DayOfWeek dow = DayOfWeek.valueOf(dayDto.getDayOfWeek().getValue());
+                    WorkingHourEntry entry = new WorkingHourEntry();
+                    entry.setDayOfWeek(dow);
+                    entry.setWorkDay(dayDto.getIsWorkDay());
+                    if (dayDto.getStartTime() != null) {
+                        entry.setStartTime(LocalTime.parse(dayDto.getStartTime()));
+                    }
+                    if (dayDto.getEndTime() != null) {
+                        entry.setEndTime(LocalTime.parse(dayDto.getEndTime()));
+                    }
+                    return entry;
+                })
+                .collect(Collectors.toMap(WorkingHourEntry::getDayOfWeek, e -> e));
     }
 
-    private Optional<TimeBlock> findNextBlocker(List<TimeBlock> blockers, LocalTime after) {
-        return blockers.stream()
-                .filter(b -> b.start().isAfter(after) || b.start().equals(after))
-                .findFirst();
+    /**
+     * Get working hour entry for a day of week.
+     */
+    private Optional<WorkingHourEntry> getWorkingHourEntry(Map<DayOfWeek, WorkingHourEntry> map, DayOfWeek dow) {
+        return Optional.ofNullable(map.get(dow));
+    }
+
+    /**
+     * Get current organization ID for a user.
+     */
+    private UUID getCurrentOrgId(UUID userId) {
+        return userRepository.findById(userId)
+                .map(u -> u.getOrganization().getId())
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
 
     @Transactional
@@ -331,7 +436,7 @@ public class ScheduleService {
             throw new ConflictException("schedule-entry-already-completed");
         }
         entry.setCompleted(true);
-        return mapToScheduleEntryModel(scheduleEntryRepository.save(entry));
+        return toScheduleEntryDto(scheduleEntryRepository.save(entry));
     }
 
     @Transactional
@@ -342,7 +447,7 @@ public class ScheduleService {
             throw new ConflictException("schedule-entry-already-pinned");
         }
         entry.setPinned(true);
-        return mapToScheduleEntryModel(scheduleEntryRepository.save(entry));
+        return toScheduleEntryDto(scheduleEntryRepository.save(entry));
     }
 
     @Transactional
@@ -353,51 +458,72 @@ public class ScheduleService {
             throw new ConflictException("schedule-entry-not-pinned");
         }
         entry.setPinned(false);
-        return mapToScheduleEntryModel(scheduleEntryRepository.save(entry));
+        return toScheduleEntryDto(scheduleEntryRepository.save(entry));
     }
 
-    private ScheduleResponse mapToScheduleResponse(LocalDate from, LocalDate to, List<ScheduleEntry> entries, List<String> warnings) {
-        Instant generatedAt = entries.stream()
-                .map(ScheduleEntry::getGeneratedAt)
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(Instant.now());
-        
-        int totalWorkMinutes = entries.stream()
-                .filter(e -> e.getEntryType() == ScheduleEntryType.TASK)
-                .mapToInt(e -> (int) Duration.between(e.getStartTime(), e.getEndTime()).toMinutes())
-                .sum();
-
-        return ScheduleResponse.builder()
-                .generatedAt(OffsetDateTime.ofInstant(generatedAt, ZoneOffset.UTC))
-                .from(from)
-                .to(to)
-                .totalWorkMinutes(totalWorkMinutes)
-                .warnings(new ArrayList<>(new LinkedHashSet<>(warnings)))
-                .entries(entries.stream().map(this::mapToScheduleEntryModel).toList())
-                .build();
-    }
-
-    private de.goaldone.backend.model.ScheduleEntry mapToScheduleEntryModel(ScheduleEntry entity) {
-        de.goaldone.backend.model.ScheduleEntry model = new de.goaldone.backend.model.ScheduleEntry();
-        model.setId(entity.getId());
-        model.setDate(entity.getEntryDate());
-        model.setStartTime(entity.getStartTime().toString());
-        model.setEndTime(entity.getEndTime().toString());
-        model.setType(de.goaldone.backend.model.ScheduleEntry.TypeEnum.valueOf(entity.getEntryType().name()));
-        model.setIsCompleted(entity.isCompleted());
-        model.setIsPinned(entity.isPinned());
+    /**
+     * Convert ScheduleEntry entity to DTO (ONE_TIME source).
+     */
+    private de.goaldone.backend.model.ScheduleEntry toScheduleEntryDto(ScheduleEntry entity) {
+        de.goaldone.backend.model.ScheduleEntry dto = new de.goaldone.backend.model.ScheduleEntry();
+        dto.setSource(de.goaldone.backend.model.ScheduleEntry.SourceEnum.ONE_TIME);
+        dto.setEntryId(org.openapitools.jackson.nullable.JsonNullable.of(entity.getId()));
+        dto.setDate(entity.getEntryDate());
+        dto.setStartTime(entity.getStartTime().toString());
+        dto.setEndTime(entity.getEndTime().toString());
+        dto.setType(de.goaldone.backend.model.ScheduleEntry.TypeEnum.valueOf(entity.getEntryType().name()));
+        dto.setIsCompleted(entity.isCompleted());
+        dto.setIsPinned(entity.isPinned());
 
         if (entity.getTask() != null) {
-            model.setTaskId(org.openapitools.jackson.nullable.JsonNullable.of(entity.getTask().getId()));
-            model.setTaskTitle(org.openapitools.jackson.nullable.JsonNullable.of(entity.getTask().getTitle()));
+            dto.setTaskId(org.openapitools.jackson.nullable.JsonNullable.of(entity.getTask().getId()));
+            dto.setTaskTitle(org.openapitools.jackson.nullable.JsonNullable.of(entity.getTask().getTitle()));
         }
 
         if (entity.getBreakEntry() != null) {
-            model.setBreakId(org.openapitools.jackson.nullable.JsonNullable.of(entity.getBreakEntry().getId()));
-            model.setBreakLabel(org.openapitools.jackson.nullable.JsonNullable.of(entity.getBreakEntry().getLabel()));
+            dto.setBreakId(org.openapitools.jackson.nullable.JsonNullable.of(entity.getBreakEntry().getId()));
+            dto.setBreakLabel(org.openapitools.jackson.nullable.JsonNullable.of(entity.getBreakEntry().getLabel()));
         }
 
-        return model;
+        return dto;
+    }
+
+    /**
+     * Task pool entry for the algorithm.
+     */
+    private static class TaskPoolEntry {
+        private final Task task;
+        private int restDurationMinutes;
+        private int slack;
+
+        TaskPoolEntry(Task task, int restDurationMinutes) {
+            this.task = task;
+            this.restDurationMinutes = restDurationMinutes;
+        }
+
+        Task getTask() { return task; }
+        int getRestDurationMinutes() { return restDurationMinutes; }
+        void setRestDurationMinutes(int value) { this.restDurationMinutes = value; }
+        int getSlack() { return slack; }
+        void setSlack(int value) { this.slack = value; }
+    }
+
+    /**
+     * Helper class for working hour entries.
+     */
+    private static class WorkingHourEntry {
+        private DayOfWeek dayOfWeek;
+        private boolean workDay;
+        private LocalTime startTime;
+        private LocalTime endTime;
+
+        DayOfWeek getDayOfWeek() { return dayOfWeek; }
+        void setDayOfWeek(DayOfWeek value) { this.dayOfWeek = value; }
+        boolean isWorkDay() { return workDay; }
+        void setWorkDay(boolean value) { this.workDay = value; }
+        LocalTime getStartTime() { return startTime; }
+        void setStartTime(LocalTime value) { this.startTime = value; }
+        LocalTime getEndTime() { return endTime; }
+        void setEndTime(LocalTime value) { this.endTime = value; }
     }
 }
