@@ -3,6 +3,7 @@ package de.goaldone.backend.controller;
 import de.goaldone.backend.api.ScheduleApi;
 import de.goaldone.backend.model.GenerateScheduleRequest;
 import de.goaldone.backend.model.ScheduleResponse;
+import de.goaldone.backend.model.ScheduleEntry;
 import de.goaldone.backend.security.GoaldoneUserDetails;
 import de.goaldone.backend.service.ScheduleService;
 import lombok.RequiredArgsConstructor;
@@ -31,5 +32,20 @@ public class ScheduleController extends BaseController implements ScheduleApi {
                 getCurrentOrgId(),
                 generateScheduleRequest
         ));
+    }
+
+    @Override
+    public ResponseEntity<ScheduleEntry> completeScheduleEntry(UUID entryId) {
+        return ResponseEntity.ok(scheduleService.completeScheduleEntry(entryId, getCurrentUserId()));
+    }
+
+    @Override
+    public ResponseEntity<ScheduleEntry> pinScheduleEntry(UUID entryId) {
+        return ResponseEntity.ok(scheduleService.pinScheduleEntry(entryId, getCurrentUserId()));
+    }
+
+    @Override
+    public ResponseEntity<ScheduleEntry> unpinScheduleEntry(UUID entryId) {
+        return ResponseEntity.ok(scheduleService.unpinScheduleEntry(entryId, getCurrentUserId()));
     }
 }

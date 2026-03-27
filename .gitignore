@@ -34,3 +34,5 @@ build/
 super-admins.yml
 
 .env
+prompt
+.prompts
