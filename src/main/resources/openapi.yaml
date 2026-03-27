@@ -100,6 +100,10 @@ tags:
     description: Persönliche Pausen konfigurieren
   - name: schedule
     description: Planungsalgorithmus ausführen und Wochenplan abrufen
+  - name: recurring-templates
+    description: Wiederkehrende Aufgaben-Vorlagen erstellen, abrufen, bearbeiten und löschen
+  - name: recurring-schedule
+    description: Ausnahmen für einzelne Vorkommen verwalten (verschieben, abschließen, überspringen)
   - name: admin
     description: Super-Admin Funktionen (Organisationen und Super-Admins verwalten)
 
@@ -767,12 +771,10 @@ paths:
       description: |
         Setzt den Status des Tasks auf `DONE` und setzt `completedAt`.
 
-        **Wichtiger Unterschied zur Entry-Completion:**
-        Dieser Endpunkt markiert den **gesamten Task** dauerhaft als erledigt –
-        unabhängig davon, ob er wiederkehrend ist. Bei wiederkehrenden Tasks
-        sollte stattdessen `PATCH /schedule/{entryId}/complete` verwendet werden,
-        um nur einen einzelnen Kalenderblock abzuhaken und den Task für die Zukunft
-        zu erhalten.
+        Einmalige Tasks können hierüber dauerhaft als erledigt markiert werden.
+        Für wiederkehrende Aufgaben existiert kein `Task`-Objekt mehr –
+        einzelne Vorkommen werden über
+        `POST /schedule/recurring/{templateId}/exceptions` mit `type: COMPLETED` abgehakt.
 
         Dieser Endpunkt ist primär für die **Backlog-Ansicht** gedacht
         (z.B. um einen Task manuell zu schließen, ohne ihn im Tagesplan abzuhaken).
@@ -924,7 +926,14 @@ paths:
     get:
       tags: [breaks]
       summary: Eigene Pausen abrufen
-      description: Gibt alle konfigurierten Pausen des eingeloggten Nutzers zurück.
+      description: |
+        Erstellt eine neue Pause. Das Verhalten hängt vom `breakType` ab:
+        - `ONE_TIME` – einmalig an `date`, keine Wiederholung.
+        - `RECURRING` – wiederkehrend ohne Enddatum.
+        - `BOUNDED_RECURRING` – wiederkehrend nur zwischen `validFrom` und `validUntil`.
+        
+        Der Planungsalgorithmus berücksichtigt die Pause ab dem nächsten
+        `POST /schedule/generate` automatisch als Budgetabzug.
       operationId: listBreaks
       responses:
         '200':
@@ -965,6 +974,9 @@ paths:
       tags: [breaks]
       summary: Pause aktualisieren
       operationId: updateBreak
+      description: |
+        Ersetzt eine Pause vollständig (PUT-Semantik). `breakType` kann geändert werden –
+        dabei müssen alle Felder des neuen Typs gesetzt und die alten auf null gesetzt werden.
       parameters:
         - $ref: '#/components/parameters/BreakIdParam'
       requestBody:
@@ -1010,8 +1022,19 @@ paths:
       tags: [schedule]
       summary: Aktuellen Plan für einen Zeitraum abrufen
       description: |
-        Gibt den zuletzt generierten Plan für den angegebenen Zeitraum zurück.
-        Enthält sowohl Tasks als auch Pausen als `ScheduleEntry`-Objekte.
+        Gibt den Plan für den angegebenen Zeitraum als **unified Response** zurück.
+        Die Antwort enthält zwei Arten von Einträgen, erkennbar am `source`-Feld:
+
+        - `source: ONE_TIME` – echte `ScheduleEntry`-Objekte aus der Datenbank
+          (einmalige Tasks). Das Feld `entryId` ist gesetzt und wird für
+          PATCH-Aktionen (complete, pin, unpin) benötigt.
+
+        - `source: RECURRING` – virtuelle Vorkommen, server-seitig on-the-fly
+          aus `RecurringTemplate`-Regeln berechnet. Kein DB-Eintrag –
+          stattdessen sind `templateId` und `occurrenceDate` gesetzt.
+          Aktionen über `POST /schedule/recurring/{templateId}/exceptions`.
+
+        Beide Typen werden nach Datum und Uhrzeit sortiert zurückgegeben.
       operationId: getSchedule
       parameters:
         - name: from
@@ -1045,43 +1068,40 @@ paths:
   /schedule/generate:
     post:
       tags: [schedule]
-      summary: Planungsalgorithmus ausführen (synchron)
+      summary: Planungsalgorithmus ausführen – dynamischer Horizont (synchron)
       description: |
-        Führt den Planungsalgorithmus für ein **14-Tage-Fenster** synchron aus.
+        Führt den Planungsalgorithmus **dynamisch** synchron aus.
         Der Server antwortet erst, wenn der Plan vollständig generiert ist.
 
-        **Algorithmus-Prinzipien:**
-        - Max. ~4h kognitive Arbeit pro Tag (konfigurierbar via `maxDailyWorkMinutes`)
-        - Aufgaben werden nach `cognitiveLoad` und `deadline` priorisiert
-        - `HIGH`-Tasks werden bevorzugt in produktive Morgenstunden gelegt
-        - Tasks mit `startDate` werden nicht vor diesem Datum eingeplant
-        - Wiederholende Tasks (`recurrence`) erzeugen für jeden passenden Tag
-          im 14-Tage-Fenster einen eigenen `ScheduleEntry`, der auf denselben Haupt-Task verweist
-        - Pausen des Nutzers blockieren Zeit und werden als Einträge mit `type: BREAK` eingetragen
-        - Tasks länger als ein Arbeitstag werden automatisch gesplittet
+        **Dynamischer Planungshorizont:**
+        Der Algorithmus startet am `from`-Datum und plant einmalige Tasks Tag für Tag
+        vorwärts, bis der Pool leer ist. Das Enddatum (`to` in der Response) ergibt
+        sich automatisch aus dem letzten belegten Tag.
 
-        **Selektives Löschen (kein blindes Überschreiben):**
-        Beim erneuten Generieren werden **nur offene, ungepinnte** Einträge gelöscht.
-        Einträge mit `isCompleted = true` oder `isPinned = true` bleiben erhalten
-        und blockieren weiterhin ihre Zeitslots – ihre Dauer wird vom verfügbaren
-        Tagesbudget abgezogen, bevor neue Tasks eingeplant werden.
+        **Was der Algorithmus plant (und was nicht):**
+        - **Einmalige Tasks**: werden nach MSTF sortiert und in
+          verfügbare Zeitslots eingeplant. Erzeugen echte `ScheduleEntry`-Objekte
+          in der DB (`source: ONE_TIME`).
+        - **RecurringTemplates**: werden **nicht** eingeplant und erzeugen **keine**
+          ScheduleEntries. Ihre Dauer pro Tag wird als fixer Budgetabzug behandelt.
+          Vorkommen erscheinen in `GET /schedule` als virtuelle Einträge
+          (`source: RECURRING`) on-the-fly berechnet.
 
-        **Transaktionssicherheit:**
-        Der neue Plan wird vollständig im Speicher berechnet, bevor die alten Einträge
-        gelöscht werden. Schlägt die Berechnung fehl, bleibt der alte Plan erhalten
-        (kein halber Plan in der Datenbank).
+        **Sortierung – Minimum Slack Time First (MSTF):**
+        Pro Tag: `Slack = workdaysBetween(heute, deadline) - ceil(restDauer / maxDailyWorkMinutes)`.
+        Sortierung aufsteigend, Tiebreaker: `cognitiveLoad` HIGH zuerst.
+        Tasks ohne Deadline: Slack = ∞, werden ans Ende sortiert.
 
-        **Warnungen:**
-        Können Tasks nicht vollständig eingeplant werden oder reißen Deadlines,
-        enthält das `warnings`-Array der Response entsprechende Hinweise.
+        **Budgetabzug pro Tag:**
+        `maxDailyWorkMinutes` wird reduziert durch: Completed Entries, Pinned Entries,
+        konfigurierte Pausen und RecurringTemplates (außer Vorkommen mit Exception `SKIPPED`).
 
-        **Pre-Flight Check – Arbeitszeiten:**
-        Bevor der Algorithmus startet, prüft der Server, ob für den Nutzer
-        Arbeitszeiten (`/users/me/working-hours`) konfiguriert sind.
-        Fehlen diese, wird sofort mit `400` und `detail: "working-hours-missing"`
-        abgebrochen – ohne dass irgendeine Planung stattfindet.
-        Das Frontend soll diesen Fehler abfangen und den Nutzer zur
-        Arbeitszeit-Konfiguration weiterleiten.
+        **Selektives Löschen:**
+        Beim erneuten Generieren werden nur offene, ungepinnte `ScheduleEntries` ab
+        `from` gelöscht. Completed und Pinned Entries bleiben erhalten.
+
+        **Pre-Flight Check:**
+        Fehlen WorkingHours, wird sofort mit `400 working-hours-missing` abgebrochen.
       operationId: generateSchedule
       requestBody:
         required: true
@@ -1101,7 +1121,6 @@ paths:
             Ungültige Anfrage. Mögliche Ursachen (erkennbar am `detail`-Feld):
             - `"working-hours-missing"` – Der Nutzer hat noch keine Arbeitszeiten konfiguriert.
               Das Frontend soll den Nutzer zu `PUT /users/me/working-hours` weiterleiten.
-            - `"invalid-schedule-window"` – Der Zeitraum zwischen `from` und `to` beträgt nicht exakt 14 Tage.
           content:
             application/problem+json:
               schema:
@@ -1115,34 +1134,23 @@ paths:
                     status: 400
                     detail: "working-hours-missing"
                     instance: "/api/v1/schedule/generate"
-                invalid-schedule-window:
-                  summary: Zeitraum ist nicht exakt 14 Tage
-                  value:
-                    type: "https://goaldone.de/problems/bad-request"
-                    title: "Bad Request"
-                    status: 400
-                    detail: "invalid-schedule-window"
-                    instance: "/api/v1/schedule/generate"
         '401':
           $ref: '#/components/responses/Unauthorized'
 
   /schedule/{entryId}/complete:
     patch:
       tags: [schedule]
-      summary: Einzelnen Kalenderblock als erledigt markieren (Tagesplan-Ansicht)
+      summary: Einmaligen Kalenderblock als erledigt markieren
       description: |
-        Markiert einen einzelnen `ScheduleEntry` als erledigt (`isCompleted = true`).
+        Markiert einen **einmaligen** `ScheduleEntry` (`source: ONE_TIME`) als erledigt
+        (`isCompleted = true`).
 
-        **Unterschied zu `PATCH /tasks/{taskId}/complete`:**
-        Dieser Endpunkt operiert auf **Kalenderblock-Ebene**, nicht auf Task-Ebene.
-        - Bei **einmaligen Tasks**: entspricht funktional dem globalen Complete –
-          der Block ist erledigt, der Task hat keine weiteren Einträge.
-        - Bei **wiederkehrenden Tasks**: nur dieser eine Block wird abgehakt.
-          Der Haupt-Task (`TaskResponse.status`) bleibt `OPEN` oder `IN_PROGRESS`,
-          und zukünftige Wiederholungsblöcke bleiben erhalten.
+        **Nur für einmalige Tasks (`source: ONE_TIME`).**
+        Für wiederkehrende Vorkommen (`source: RECURRING`) stattdessen
+        `POST /schedule/recurring/{templateId}/exceptions` mit `type: COMPLETED` verwenden.
 
-        Erledigte Blöcke (`isCompleted = true`) werden beim erneuten Ausführen
-        des Planungsalgorithmus **nicht gelöscht** und blockieren weiterhin ihre Zeit.
+        Erledigte Blöcke werden beim erneuten Ausführen des Planungsalgorithmus
+        nicht gelöscht und zählen als fixer Budgetabzug für ihren Tag.
       operationId: completeScheduleEntry
       parameters:
         - $ref: '#/components/parameters/EntryIdParam'
@@ -1173,18 +1181,17 @@ paths:
   /schedule/{entryId}/pin:
     patch:
       tags: [schedule]
-      summary: Kalenderblock manuell fixieren (pinnen)
+      summary: Einmaligen Kalenderblock fixieren (pinnen)
       description: |
-        Setzt `isPinned = true` auf einem `ScheduleEntry`.
+        Setzt `isPinned = true` auf einem **einmaligen** `ScheduleEntry` (`source: ONE_TIME`).
 
-        Gepinnte Blöcke werden beim erneuten Ausführen des Planungsalgorithmus
-        **nicht überschrieben** – sie behalten ihre Position und blockieren die Zeit.
-        Dies erlaubt es dem Nutzer, einen Block manuell zu verschieben
-        (clientseitig per Drag & Drop auf ein neues Zeitfenster, dann diesen
-        Endpunkt aufrufen) und ihn gegen automatisches Neueinplanen zu schützen.
+        **Nur für einmalige Tasks (`source: ONE_TIME`).**
+        Für wiederkehrende Vorkommen (`source: RECURRING`) stattdessen
+        `POST /schedule/recurring/{templateId}/exceptions` mit `type: PINNED` verwenden.
 
-        Ein gepinnter Block kann durch erneuten Aufruf dieses Endpunkts
-        **nicht** entpinnt werden – dafür existiert `PATCH /schedule/{entryId}/unpin`.
+        Gepinnte Blöcke werden beim erneuten Ausführen des Algorithmus nicht
+        überschrieben und zählen als fixer Budgetabzug. Ermöglicht manuelles
+        Verschieben via Drag & Drop. Entpinnen über `PATCH /schedule/{entryId}/unpin`.
       operationId: pinScheduleEntry
       parameters:
         - $ref: '#/components/parameters/EntryIdParam'
@@ -1246,6 +1253,219 @@ paths:
                 status: 409
                 detail: "schedule-entry-not-pinned"
                 instance: "/api/v1/schedule/3fa85f64-5717-4562-b3fc-2c963f66afa6/unpin"
+
+  # ════════════════════════════════════════════
+  # RECURRING TEMPLATES
+  # ════════════════════════════════════════════
+
+  /recurring-templates:
+    get:
+      tags: [recurring-templates]
+      summary: Alle eigenen RecurringTemplates auflisten
+      description: |
+        Gibt alle wiederkehrenden Aufgaben-Vorlagen des eingeloggten Nutzers zurück.
+        RecurringTemplates sind unabhängig von Tasks – sie repräsentieren Aufgaben,
+        die regelmäßig anfallen (z.B. tägliches Stand-up, wöchentlicher Review).
+        Vorkommen erscheinen in `GET /schedule` als virtuelle Einträge
+        (`source: RECURRING`) und werden nie als ScheduleEntries persistiert.
+      operationId: listRecurringTemplates
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/SizeParam'
+      responses:
+        '200':
+          description: Paginierte Liste aller RecurringTemplates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecurringTemplatePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [recurring-templates]
+      summary: Neues RecurringTemplate erstellen
+      description: |
+        Erstellt eine neue wiederkehrende Aufgaben-Vorlage.
+        Ab dem nächsten `POST /schedule/generate` wird die Dauer des Templates
+        täglich als Budgetabzug berücksichtigt. In `GET /schedule` erscheinen
+        die Vorkommen automatisch als virtuelle Einträge (`source: RECURRING`).
+      operationId: createRecurringTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRecurringTemplateRequest'
+      responses:
+        '201':
+          description: RecurringTemplate erstellt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecurringTemplateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /recurring-templates/{templateId}:
+    get:
+      tags: [recurring-templates]
+      summary: Einzelnes RecurringTemplate abrufen
+      operationId: getRecurringTemplate
+      parameters:
+        - $ref: '#/components/parameters/TemplateIdParam'
+      responses:
+        '200':
+          description: RecurringTemplate-Details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecurringTemplateResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [recurring-templates]
+      summary: RecurringTemplate vollständig aktualisieren
+      description: |
+        Aktualisiert Titel, Dauer, Cognitive Load, Recurrence-Regel oder Startzeit.
+        Bestehende `RecurringExceptions` bleiben erhalten und beziehen sich
+        weiterhin auf ihre `occurrenceDate`-Einträge.
+      operationId: updateRecurringTemplate
+      parameters:
+        - $ref: '#/components/parameters/TemplateIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRecurringTemplateRequest'
+      responses:
+        '200':
+          description: RecurringTemplate aktualisiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecurringTemplateResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [recurring-templates]
+      summary: RecurringTemplate löschen (Hard Delete)
+      description: |
+        Löscht das RecurringTemplate dauerhaft inklusive aller zugehörigen
+        `RecurringExceptions` (Kaskade). Ab dem nächsten `POST /schedule/generate`
+        entfällt der Budgetabzug für dieses Template.
+      operationId: deleteRecurringTemplate
+      parameters:
+        - $ref: '#/components/parameters/TemplateIdParam'
+      responses:
+        '204':
+          description: RecurringTemplate und alle zugehörigen Exceptions gelöscht
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ════════════════════════════════════════════
+  # RECURRING SCHEDULE EXCEPTIONS
+  # ════════════════════════════════════════════
+
+  /schedule/recurring/{templateId}/exceptions:
+    post:
+      tags: [recurring-schedule]
+      summary: Ausnahme für ein RecurringTemplate-Vorkommen anlegen
+      description: |
+        Legt eine `RecurringException` für ein einzelnes Vorkommen an (Upsert-Semantik).
+        Mögliche Typen:
+        - `COMPLETED` – Vorkommen abgehakt. Bleibt als Budgetabzug beim Algorithmus.
+        - `PINNED` – Vorkommen fixiert. Erscheint mit `isPinned: true`.
+        - `SKIPPED` – Vorkommen übersprungen. Kein Budgetabzug beim Algorithmus
+          (mehr Budget für einmalige Tasks an diesem Tag).
+        - `RESCHEDULED` – Vorkommen verschoben auf `newDate`/`newStartTime`.
+          Budgetabzug bleibt am ursprünglichen Tag erhalten.
+
+        Pro `(templateId, occurrenceDate)` existiert maximal eine Exception.
+        Ein erneuter POST überschreibt die bestehende Exception.
+      operationId: createRecurringException
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          description: UUID des RecurringTemplate
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecurringExceptionRequest'
+      responses:
+        '200':
+          description: Exception angelegt oder aktualisiert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecurringExceptionResponse'
+        '400':
+          description: |
+            Ungültige Anfrage:
+            - `"missing-new-date"` – type RESCHEDULED erfordert `newDate`
+            - `"missing-new-start-time"` – type RESCHEDULED erfordert `newStartTime`
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /schedule/recurring/{templateId}/exceptions/{occurrenceDate}:
+    delete:
+      tags: [recurring-schedule]
+      summary: Ausnahme eines Vorkommens entfernen (Undo)
+      description: |
+        Löscht die `RecurringException` – das Vorkommen kehrt zum Normalzustand zurück.
+        - `COMPLETED` → erscheint wieder als offen
+        - `PINNED` → nicht mehr fixiert
+        - `SKIPPED` → erscheint wieder im Plan
+        - `RESCHEDULED` → erscheint wieder am ursprünglichen Datum/Zeit
+      operationId: deleteRecurringException
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          description: UUID des RecurringTemplate
+          schema:
+            type: string
+            format: uuid
+        - name: occurrenceDate
+          in: path
+          required: true
+          description: Datum des Vorkommens (ISO 8601)
+          schema:
+            type: string
+            format: date
+            example: "2026-04-07"
+      responses:
+        '204':
+          description: Exception gelöscht, Vorkommen zurückgesetzt
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   # ════════════════════════════════════════════
   # SUPER-ADMIN
@@ -1502,6 +1722,15 @@ components:
       in: path
       required: true
       description: UUID des ScheduleEntry (Kalenderblocks)
+      schema:
+        type: string
+        format: uuid
+
+    TemplateIdParam:
+      name: templateId
+      in: path
+      required: true
+      description: UUID des RecurringTemplate
       schema:
         type: string
         format: uuid
@@ -1926,9 +2155,6 @@ components:
             Der Planungsalgorithmus plant diesen Task **nicht vor** diesem Datum ein.
             Nützlich für Tasks, die erst ab einem bestimmten Datum relevant sind
             (z.B. „nach dem Meeting am Montag starten").
-        recurrence:
-          $ref: '#/components/schemas/RecurrenceRule'
-          nullable: true
         parentTaskId:
           type: string
           format: uuid
@@ -1983,9 +2209,6 @@ components:
           nullable: true
           example: "2026-04-07"
           description: "Frühestes Startdatum (optional). Der Algorithmus plant den Task nicht vor diesem Datum ein."
-        recurrence:
-          $ref: '#/components/schemas/RecurrenceRule'
-          nullable: true
       required: [title, cognitiveLoad, estimatedDurationMinutes]
 
     UpdateTaskRequest:
@@ -2014,9 +2237,6 @@ components:
           nullable: true
           example: "2026-04-07"
           description: "Frühestes Startdatum (optional). Der Algorithmus plant den Task nicht vor diesem Datum ein."
-        recurrence:
-          $ref: '#/components/schemas/RecurrenceRule'
-          nullable: true
       required: [title, cognitiveLoad, estimatedDurationMinutes]
 
     RecurrenceRule:
@@ -2114,12 +2334,48 @@ components:
           pattern: '^([01]\d|2[0-3]):[0-5]\d$'
           example: "13:00"
           description: "Uhrzeit im Format HH:mm"
+        breakType:
+          $ref: '#/components/schemas/BreakType'
         recurrence:
           $ref: '#/components/schemas/RecurrenceRule'
-      required: [id, label, startTime, endTime, recurrence]
+          nullable: true
+          description: |
+            Gesetzt wenn breakType = RECURRING oder BOUNDED_RECURRING.
+            Null wenn breakType = ONE_TIME.
+        date:
+          type: string
+          format: date
+          nullable: true
+          description: |
+            Nur gesetzt wenn breakType = ONE_TIME.
+            Datum des einmaligen Vorkommens.
+          example: "2026-04-07"
+        validFrom:
+          type: string
+          format: date
+          nullable: true
+          description: |
+            Nur gesetzt wenn breakType = BOUNDED_RECURRING.
+            Erster Tag, an dem die Pause gilt (inklusiv).
+          example: "2026-04-07"
+        validUntil:
+          type: string
+          format: date
+          nullable: true
+          description: |
+            Nur gesetzt wenn breakType = BOUNDED_RECURRING.
+            Letzter Tag, an dem die Pause gilt (inklusiv).
+          example: "2026-04-10"
+      required: [ id, label, startTime, endTime, breakType ]
 
     CreateBreakRequest:
       type: object
+      description: |
+        Drei Typen über `breakType` steuerbar:
+        - `ONE_TIME`: einmalige Pause. `date` ist Pflicht, `recurrence`/`validFrom`/`validUntil` müssen null sein.
+        - `RECURRING`: unbegrenzt wiederkehrende Pause. `recurrence` ist Pflicht, alle Datumsfelder null.
+        - `BOUNDED_RECURRING`: wiederkehrende Pause in einem Zeitraum. `recurrence`, `validFrom`
+          und `validUntil` sind Pflicht. `validFrom` muss vor oder gleich `validUntil` liegen.
       properties:
         label:
           type: string
@@ -2133,9 +2389,43 @@ components:
           type: string
           pattern: '^([01]\d|2[0-3]):[0-5]\d$'
           example: "13:00"
+        breakType:
+          $ref: '#/components/schemas/BreakType'
         recurrence:
           $ref: '#/components/schemas/RecurrenceRule'
-      required: [label, startTime, endTime, recurrence]
+          nullable: true
+          description: "Pflicht bei RECURRING und BOUNDED_RECURRING. Null bei ONE_TIME."
+        date:
+          type: string
+          format: date
+          nullable: true
+          description: "Pflicht bei ONE_TIME. Null bei RECURRING und BOUNDED_RECURRING."
+          example: "2026-04-07"
+        validFrom:
+          type: string
+          format: date
+          nullable: true
+          description: "Pflicht bei BOUNDED_RECURRING. Null bei ONE_TIME und RECURRING."
+          example: "2026-04-07"
+        validUntil:
+          type: string
+          format: date
+          nullable: true
+          description: "Pflicht bei BOUNDED_RECURRING. Muss >= validFrom sein."
+          example: "2026-04-10"
+      required: [ label, startTime, endTime, breakType ]
+
+    BreakType:
+      type: string
+      enum: [ ONE_TIME, RECURRING, BOUNDED_RECURRING ]
+      description: |
+        Typ der Pause:
+        - `ONE_TIME`: einmalige Pause an einem konkreten Datum (`date`-Feld).
+        - `RECURRING`: unbegrenzt wiederkehrende Pause nach Recurrence-Regel –
+          gilt für immer, solange sie nicht gelöscht wird.
+        - `BOUNDED_RECURRING`: wiederkehrende Pause, die nur im Zeitraum
+          [`validFrom`, `validUntil`] gilt. Außerhalb dieses Zeitraums
+          wird die Pause vom Algorithmus ignoriert.
 
     # ── Schedule ──────────────────────────────────────────
 
@@ -2152,6 +2442,7 @@ components:
         to:
           type: string
           format: date
+          description: "Letzter tatsächlich eingeplanter Tag. Wird dynamisch vom Algorithmus bestimmt."
         totalWorkMinutes:
           type: integer
           description: "Summe aller eingeplanten Arbeitsminuten im Zeitraum"
@@ -2159,14 +2450,15 @@ components:
           type: array
           description: |
             Warnungen des Planungsalgorithmus. Leer wenn kein Problem erkannt wurde.
-            Mögliche Einträge (Beispiele):
-            - `"task-budget-exceeded:uuid"` – Task passt nicht vollständig ins Tagesbudget
-            - `"deadline-at-risk:uuid"` – Task-Deadline kann mit aktuellem Budget nicht eingehalten werden
-            - `"unschedulable-task:uuid"` – Task konnte im Zeitraum gar nicht eingeplant werden
+            Mögliche Einträge:
+            - `"deadline-missed:uuid"` – Einmaliger Task konnte vor seiner Deadline
+              nicht vollständig eingeplant werden. Das verfügbare Tagesbudget
+              (nach Abzug von RecurringTemplates, Pausen und Pinned/Completed Entries)
+              reichte nicht aus, um den Task rechtzeitig zu platzieren.
           items:
             type: string
           example:
-            - "deadline-at-risk:3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            - "deadline-missed:3fa85f64-5717-4562-b3fc-2c963f66afa6"
         entries:
           type: array
           items:
@@ -2175,15 +2467,48 @@ components:
 
     ScheduleEntry:
       type: object
-      description: "Ein eingeplanter Zeitblock im Plan (Task-Block oder Pause)"
+      description: |
+        Ein Zeitblock im Kalender. Kann ein echter DB-Eintrag (`source: ONE_TIME`)
+        oder ein virtuell berechnetes Vorkommen eines RecurringTemplate (`source: RECURRING`) sein.
+        Das `source`-Feld bestimmt, welche Felder gesetzt sind und welche Endpunkte
+        das Frontend für Aktionen aufrufen muss.
       properties:
-        id:
+        source:
+          type: string
+          enum: [ONE_TIME, RECURRING]
+          description: |
+            Diskriminator-Feld.
+            - `ONE_TIME`: echter ScheduleEntry in der DB. `entryId` ist gesetzt.
+              Aktionen über `PATCH /schedule/{entryId}/complete|pin|unpin`.
+            - `RECURRING`: virtuelles Vorkommen, on-the-fly berechnet. `templateId`
+              und `occurrenceDate` sind gesetzt.
+              Aktionen über `POST /schedule/recurring/{templateId}/exceptions`.
+        entryId:
           type: string
           format: uuid
-          description: "Eindeutige ID dieses Kalenderblocks. Wird für PATCH /schedule/{entryId}/complete und /pin benötigt."
+          nullable: true
+          description: |
+            Nur gesetzt wenn `source = ONE_TIME`.
+            Wird für `PATCH /schedule/{entryId}/complete`, `/pin` und `/unpin` benötigt.
+        templateId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Nur gesetzt wenn `source = RECURRING`.
+            Wird für `POST /schedule/recurring/{templateId}/exceptions` benötigt.
+        occurrenceDate:
+          type: string
+          format: date
+          nullable: true
+          description: |
+            Nur gesetzt wenn `source = RECURRING`.
+            Identifiziert das konkrete Vorkommen für RecurringException-Operationen.
+          example: "2026-04-07"
         date:
           type: string
           format: date
+          description: "Datum des Eintrags (bei RESCHEDULED das neue Datum)"
           example: "2026-04-07"
         startTime:
           type: string
@@ -2200,17 +2525,18 @@ components:
           type: boolean
           default: false
           description: |
-            Gibt an, ob dieser spezifische Kalenderblock abgehakt wurde.
-            Wird über `PATCH /schedule/{entryId}/complete` gesetzt.
-            Bei wiederkehrenden Tasks: nur dieser Block ist erledigt,
-            der Haupt-Task und zukünftige Blöcke bleiben unverändert.
+            Gibt an, ob dieser Block abgehakt wurde.
+            - `ONE_TIME`: gesetzt via `PATCH /schedule/{entryId}/complete`
+            - `RECURRING`: gesetzt via `POST /schedule/recurring/{templateId}/exceptions`
+              mit `type: COMPLETED`
         isPinned:
           type: boolean
           default: false
           description: |
-            Gibt an, ob dieser Block manuell fixiert wurde (`PATCH /schedule/{entryId}/pin`).
-            Gepinnte Blöcke werden beim erneuten Ausführen des Planungsalgorithmus
-            **nicht** überschrieben – sie blockieren weiterhin die entsprechende Zeit.
+            Gibt an, ob dieser Block fixiert wurde.
+            - `ONE_TIME`: gesetzt via `PATCH /schedule/{entryId}/pin`
+            - `RECURRING`: gesetzt via `POST /schedule/recurring/{templateId}/exceptions`
+              mit `type: PINNED`
         taskId:
           type: string
           format: uuid
@@ -2224,12 +2550,16 @@ components:
           type: string
           format: uuid
           nullable: true
-          description: "Gesetzt wenn type = BREAK"
+          description: "Gesetzt wenn type = BREAK (nur bei source = ONE_TIME)"
         breakLabel:
           type: string
           nullable: true
           description: "Gesetzt wenn type = BREAK (Convenience-Feld)"
-      required: [id, date, startTime, endTime, type, isCompleted, isPinned]
+        templateTitle:
+          type: string
+          nullable: true
+          description: "Nur gesetzt wenn source = RECURRING (Convenience-Feld)"
+      required: [source, date, startTime, endTime, type, isCompleted, isPinned]
 
     GenerateScheduleRequest:
       type: object
@@ -2238,25 +2568,193 @@ components:
           type: string
           format: date
           description: |
-            Startdatum des zu planenden Zeitraums (ISO 8601).
-            Empfehlung: immer ein Montag, damit der Algorithmus vollständige Wochen plant.
+            Startdatum der Planung (ISO 8601). Der Algorithmus plant ab diesem Datum
+            so viele Tage wie nötig, bis alle einmaligen Tasks eingeplant sind.
+            Das Enddatum ergibt sich dynamisch aus der Response (`to`-Feld).
+            Empfehlung: Montag, damit vollständige Wochen geplant werden.
           example: "2026-04-07"
-        to:
-          type: string
-          format: date
-          description: |
-            Enddatum des zu planenden Zeitraums (ISO 8601).
-            Der Zeitraum beträgt **immer genau 14 Tage** (`from` + 13 Tage).
-            Kürzere oder längere Fenster werden serverseitig mit `400` abgelehnt.
-          example: "2026-04-20"
         maxDailyWorkMinutes:
           type: integer
           default: 240
           minimum: 30
           maximum: 480
-          description: "Maximale kognitive Arbeitszeit pro Tag in Minuten. Default: 240 (4h, basierend auf wissenschaftlicher Empfehlung aus Anforderungsdokument)"
+          description: |
+            Maximale kognitive Arbeitszeit pro Tag in Minuten (Default: 240 = 4h).
+            RecurringTemplate-Dauer wird zusätzlich abgezogen – das effektive
+            Budget für einmalige Tasks kann also kleiner sein.
           example: 240
-      required: [from, to]
+      required: [from]
+
+    # ── Recurring Templates ───────────────────────────────────
+
+    RecurringTemplateResponse:
+      type: object
+      description: "Eine wiederkehrende Aufgaben-Vorlage. Vorkommen werden on-the-fly berechnet und nie persistiert."
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: "Daily Stand-up"
+        description:
+          type: string
+          nullable: true
+        cognitiveLoad:
+          $ref: '#/components/schemas/CognitiveLoad'
+        durationMinutes:
+          type: integer
+          description: "Dauer eines Vorkommens in Minuten"
+          example: 15
+        recurrenceRule:
+          $ref: '#/components/schemas/RecurrenceRule'
+        preferredStartTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          nullable: true
+          description: "Bevorzugte Startzeit (optional). Wird von GET /schedule für die Zeitdarstellung genutzt."
+          example: "09:00"
+        ownerId:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, title, cognitiveLoad, durationMinutes, recurrenceRule, ownerId, organizationId, createdAt, updatedAt]
+
+    CreateRecurringTemplateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+          example: "Daily Stand-up"
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        cognitiveLoad:
+          $ref: '#/components/schemas/CognitiveLoad'
+        durationMinutes:
+          type: integer
+          minimum: 1
+          example: 15
+          description: "Dauer eines Vorkommens in Minuten"
+        recurrenceRule:
+          $ref: '#/components/schemas/RecurrenceRule'
+        preferredStartTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          nullable: true
+          description: "Bevorzugte Startzeit (optional)"
+          example: "09:00"
+      required: [title, cognitiveLoad, durationMinutes, recurrenceRule]
+
+    UpdateRecurringTemplateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+        cognitiveLoad:
+          $ref: '#/components/schemas/CognitiveLoad'
+        durationMinutes:
+          type: integer
+          minimum: 1
+        recurrenceRule:
+          $ref: '#/components/schemas/RecurrenceRule'
+        preferredStartTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          nullable: true
+      required: [title, cognitiveLoad, durationMinutes, recurrenceRule]
+
+    RecurringTemplatePage:
+      allOf:
+        - $ref: '#/components/schemas/PageMetadata'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/RecurringTemplateResponse'
+          required: [content]
+
+    # ── Recurring Schedule Exceptions ────────────────────────
+
+    RecurringExceptionRequest:
+      type: object
+      properties:
+        occurrenceDate:
+          type: string
+          format: date
+          description: "Datum des konkreten Vorkommens, für das die Ausnahme gilt"
+          example: "2026-04-07"
+        type:
+          $ref: '#/components/schemas/RecurringExceptionType'
+        newDate:
+          type: string
+          format: date
+          nullable: true
+          description: "Nur bei type = RESCHEDULED: neues Datum des Vorkommens"
+          example: "2026-04-08"
+        newStartTime:
+          type: string
+          pattern: '^([01]\d|2[0-3]):[0-5]\d$'
+          nullable: true
+          description: "Nur bei type = RESCHEDULED: neue Startzeit"
+          example: "10:00"
+      required: [occurrenceDate, type]
+
+    RecurringExceptionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        templateId:
+          type: string
+          format: uuid
+        occurrenceDate:
+          type: string
+          format: date
+          example: "2026-04-07"
+        type:
+          $ref: '#/components/schemas/RecurringExceptionType'
+        newDate:
+          type: string
+          format: date
+          nullable: true
+        newStartTime:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, templateId, occurrenceDate, type, createdAt]
+
+    RecurringExceptionType:
+      type: string
+      enum: [COMPLETED, PINNED, SKIPPED, RESCHEDULED]
+      description: |
+        Art der Ausnahme für ein RecurringTemplate-Vorkommen:
+        - `COMPLETED`: Vorkommen abgehakt. Bleibt als Budgetabzug erhalten.
+        - `PINNED`: Vorkommen fixiert. Erscheint mit `isPinned: true`.
+        - `SKIPPED`: Vorkommen übersprungen. Kein Budgetabzug beim Algorithmus.
+        - `RESCHEDULED`: Vorkommen verschoben auf `newDate`/`newStartTime`.
+          Budgetabzug bleibt am ursprünglichen Tag erhalten.
 
     # ── Super-Admin ───────────────────────────────────────
 
