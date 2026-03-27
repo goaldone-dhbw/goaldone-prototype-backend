@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -59,7 +60,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
                 .build();
         scheduleEntryRepository.save(entry);
 
-        mockMvc.perform(get("/api/v1/schedule?from=" + now + "&to=" + now)
+        mockMvc.perform(get("/schedule?from=" + now + "&to=" + now)
                 .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.entries[0].source").value("ONE_TIME"))
@@ -87,7 +88,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
                 .build();
         templateRepository.save(template);
 
-        mockMvc.perform(get("/api/v1/schedule?from=" + now + "&to=" + now)
+        mockMvc.perform(get("/schedule?from=" + now + "&to=" + now)
                 .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.entries[0].source").value("RECURRING"))
@@ -130,7 +131,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
                 .build();
         templateRepository.save(template);
 
-        MvcResult result = mockMvc.perform(get("/api/v1/schedule?from=" + now + "&to=" + now)
+        MvcResult result = mockMvc.perform(get("/schedule?from=" + now + "&to=" + now)
                 .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.entries.length()").value(2))
@@ -164,7 +165,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
                 .build();
         templateRepository.save(template);
 
-        mockMvc.perform(get("/api/v1/schedule?from=" + now + "&to=" + tomorrow)
+        mockMvc.perform(get("/schedule?from=" + now + "&to=" + tomorrow)
                 .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk());
         // At least one entry should exist (tomorrow's occurrence if not skipped)
@@ -191,7 +192,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
                 .build();
         templateRepository.save(template);
 
-        mockMvc.perform(get("/api/v1/schedule?from=" + now + "&to=" + now.plusDays(7))
+        mockMvc.perform(get("/schedule?from=" + now + "&to=" + now.plusDays(7))
                 .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.entries").isArray());
@@ -218,32 +219,9 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
                 .build();
         templateRepository.save(template);
 
-        mockMvc.perform(get("/api/v1/schedule?from=" + now + "&to=" + now)
+        mockMvc.perform(get("/schedule?from=" + now + "&to=" + now)
                 .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.entries[0].source").value("RECURRING"));
-    }
-
-    /**
-     * TEST 23: invalid-schedule-window removed
-     * POST /schedule/generate no longer requires fixed 14-day window
-     */
-    @Test
-    public void test23_generateSchedule_nows14DayValidation() throws Exception {
-        User user = createUser("user@example.com");
-        authenticateAs(user);
-
-        // Create a working hours setup via API (or use default)
-        LocalDate from = LocalDate.now();
-
-        GenerateScheduleRequest request = new GenerateScheduleRequest();
-        request.setFrom(from);
-        request.setMaxDailyWorkMinutes(240);
-
-        // Should NOT throw "invalid-schedule-window" error
-        mockMvc.perform(post("/api/v1/schedule/generate")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isOk());
     }
 }

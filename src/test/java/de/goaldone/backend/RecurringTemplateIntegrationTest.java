@@ -44,7 +44,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         request.setRecurrenceRule(ruleReq);
         request.setPreferredStartTime(JsonNullable.of("17:00"));
 
-        MvcResult result = mockMvc.perform(post("/api/v1/recurring-templates")
+        MvcResult result = mockMvc.perform(post("/recurring-templates")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isCreated())
@@ -61,7 +61,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         User user = createUser("user@example.com");
         authenticateAs(user);
 
-        mockMvc.perform(get("/api/v1/recurring-templates?page=0&size=20")
+        mockMvc.perform(get("/recurring-templates?page=0&size=20")
                 .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.content").isArray());
@@ -81,7 +81,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         rule.setInterval(1);
         request.setRecurrenceRule(rule);
 
-        MvcResult createResult = mockMvc.perform(post("/api/v1/recurring-templates")
+        MvcResult createResult = mockMvc.perform(post("/recurring-templates")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isCreated())
@@ -90,7 +90,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         String responseBody = createResult.getResponse().getContentAsString();
         RecurringTemplateResponse created = objectMapper.readValue(responseBody, RecurringTemplateResponse.class);
 
-        mockMvc.perform(get("/api/v1/recurring-templates/" + created.getId())
+        mockMvc.perform(get("/recurring-templates/" + created.getId())
                 .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.title").value("Weekly Standup"))
@@ -112,7 +112,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         rule.setInterval(1);
         request.setRecurrenceRule(rule);
 
-        MvcResult createResult = mockMvc.perform(post("/api/v1/recurring-templates")
+        MvcResult createResult = mockMvc.perform(post("/recurring-templates")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isCreated())
@@ -126,7 +126,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         updateReq.setTitle("Updated Title");
         updateReq.setDurationMinutes(60);
 
-        mockMvc.perform(patch("/api/v1/recurring-templates/" + created.getId())
+        mockMvc.perform(patch("/recurring-templates/" + created.getId())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(updateReq)))
             .andExpect(status().isOk())
@@ -148,7 +148,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         rule.setInterval(1);
         request.setRecurrenceRule(rule);
 
-        MvcResult createResult = mockMvc.perform(post("/api/v1/recurring-templates")
+        MvcResult createResult = mockMvc.perform(post("/recurring-templates")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isCreated())
@@ -157,7 +157,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         String responseBody = createResult.getResponse().getContentAsString();
         RecurringTemplateResponse created = objectMapper.readValue(responseBody, RecurringTemplateResponse.class);
 
-        mockMvc.perform(delete("/api/v1/recurring-templates/" + created.getId()))
+        mockMvc.perform(delete("/recurring-templates/" + created.getId()))
             .andExpect(status().isNoContent());
     }
 
@@ -175,7 +175,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         rule.setInterval(1);
         request.setRecurrenceRule(rule);
 
-        MvcResult createResult = mockMvc.perform(post("/api/v1/recurring-templates")
+        MvcResult createResult = mockMvc.perform(post("/recurring-templates")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isCreated())
@@ -188,7 +188,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         exceptionReq.setType(RecurringExceptionType.COMPLETED);
         LocalDate occurrenceDate = LocalDate.now();
 
-        mockMvc.perform(post("/api/v1/schedule/recurring/" + created.getId() + "/exceptions")
+        mockMvc.perform(post("/schedule/recurring/" + created.getId() + "/exceptions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(exceptionReq)))
             .andExpect(status().isCreated());
@@ -208,7 +208,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         rule.setInterval(1);
         request.setRecurrenceRule(rule);
 
-        MvcResult createResult = mockMvc.perform(post("/api/v1/recurring-templates")
+        MvcResult createResult = mockMvc.perform(post("/recurring-templates")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
             .andExpect(status().isCreated())
@@ -219,7 +219,7 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
 
         LocalDate occurrenceDate = LocalDate.now();
 
-        mockMvc.perform(delete("/api/v1/schedule/recurring/" + created.getId() + "/exceptions/" + occurrenceDate))
+        mockMvc.perform(delete("/schedule/recurring/" + created.getId() + "/exceptions/" + occurrenceDate))
             .andExpect(status().isNoContent());
     }
 }

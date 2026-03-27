@@ -61,14 +61,16 @@ public abstract class BaseIntegrationTest {
 
     protected User createUser(String email) {
         // Create organization first
-        Organization org = Organization.builder()
-                .name("Test Org " + UUID.randomUUID())
-                .build();
+        Organization org = new Organization();
+        org.setName("Test Org " + UUID.randomUUID());
+        org.setAdminEmail(email);
         org = organizationRepository.save(org);
 
         // Create user
         User user = User.builder()
                 .email(email)
+                .firstName("Test")
+                .lastName("User")
                 .passwordHash(passwordEncoder.encode("password123"))
                 .role(Role.USER)
                 .organization(org)

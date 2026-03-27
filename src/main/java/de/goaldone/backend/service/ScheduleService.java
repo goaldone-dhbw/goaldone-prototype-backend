@@ -240,17 +240,21 @@ public class ScheduleService {
                 continue;
             }
 
+            int currentMinuteOffset = 0;
+
             // 5.6 Inner Loop: Schedule tasks for the day
             for (TaskPoolEntry entry : readyTasks) {
                 if (budget <= 0) break;
 
                 if (entry.getRestDurationMinutes() <= budget) {
-                    result.add(createEntry(entry.getTask(), currentDay, entry.getRestDurationMinutes(), workDay));
+                    result.add(createEntry(entry.getTask(), currentDay, entry.getRestDurationMinutes(), workDay, currentMinuteOffset));
+                    currentMinuteOffset += entry.getRestDurationMinutes();
                     budget -= entry.getRestDurationMinutes();
                     lastScheduledDay = currentDay;
                     pool.remove(entry);
                 } else {
-                    result.add(createEntry(entry.getTask(), currentDay, budget, workDay));
+                    result.add(createEntry(entry.getTask(), currentDay, budget, workDay, currentMinuteOffset));
+                    currentMinuteOffset += budget;
                     entry.setRestDurationMinutes(entry.getRestDurationMinutes() - budget);
                     lastScheduledDay = currentDay;
                     budget = 0;
@@ -335,8 +339,8 @@ public class ScheduleService {
     /**
      * Create a ScheduleEntry for a task on a given day with a given duration.
      */
-    private ScheduleEntry createEntry(Task task, LocalDate day, int durationMinutes, WorkingHourEntry workDay) {
-        LocalTime startTime = workDay.getStartTime();
+    private ScheduleEntry createEntry(Task task, LocalDate day, int durationMinutes, WorkingHourEntry workDay, int minuteOffset) {
+        LocalTime startTime = workDay.getStartTime().plusMinutes(minuteOffset);
         LocalTime endTime = startTime.plusMinutes(durationMinutes);
 
         return ScheduleEntry.builder()
