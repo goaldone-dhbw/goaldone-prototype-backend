@@ -4,23 +4,24 @@ import de.goaldone.backend.entity.RecurringTemplate;
 import de.goaldone.backend.entity.ScheduleEntry;
 import de.goaldone.backend.entity.Task;
 import de.goaldone.backend.entity.User;
+import de.goaldone.backend.entity.WorkingHourEntry;
 import de.goaldone.backend.entity.enums.CognitiveLoad;
 import de.goaldone.backend.entity.enums.RecurrenceType;
 import de.goaldone.backend.entity.enums.ScheduleEntryType;
 import de.goaldone.backend.entity.enums.TaskStatus;
-import de.goaldone.backend.model.GenerateScheduleRequest;
 import de.goaldone.backend.repository.RecurringTemplateRepository;
 import de.goaldone.backend.repository.ScheduleEntryRepository;
 import de.goaldone.backend.repository.TaskRepository;
+import de.goaldone.backend.repository.WorkingHourEntryRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.List;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -40,6 +41,34 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
     @Autowired
     private RecurringTemplateRepository templateRepository;
 
+    @Autowired
+    private WorkingHourEntryRepository workingHourEntryRepository;
+
+    private void createWorkingHours(User user) {
+        for (DayOfWeek dow : DayOfWeek.values()) {
+            boolean isWorkDay = dow != DayOfWeek.SATURDAY && dow != DayOfWeek.SUNDAY;
+            WorkingHourEntry entry = WorkingHourEntry.builder()
+                    .user(user)
+                    .dayOfWeek(dow)
+                    .workDay(isWorkDay)
+                    .startTime(isWorkDay ? LocalTime.of(8, 0) : null)
+                    .endTime(isWorkDay ? LocalTime.of(17, 0) : null)
+                    .build();
+            workingHourEntryRepository.save(entry);
+        }
+    }
+
+    private Task createTask(User user, String title) {
+        return taskRepository.save(Task.builder()
+                .title(title)
+                .status(TaskStatus.OPEN)
+                .cognitiveLoad(CognitiveLoad.MEDIUM)
+                .estimatedDurationMinutes(60)
+                .owner(user)
+                .organization(user.getOrganization())
+                .build());
+    }
+
     /**
      * TEST 24: Real ScheduleEntries (source=ONE_TIME) returned correctly
      */
@@ -47,11 +76,15 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
     public void test24_oneTimeEntries_returned() throws Exception {
         User user = createUser("user@example.com");
         authenticateAs(user);
+        createWorkingHours(user);
 
         LocalDate now = LocalDate.now();
+        Task task = createTask(user, "Test Task");
+
         ScheduleEntry entry = ScheduleEntry.builder()
                 .user(user)
                 .organization(user.getOrganization())
+                .task(task)
                 .entryDate(now)
                 .startTime(LocalTime.of(9, 0))
                 .endTime(LocalTime.of(10, 0))
@@ -74,6 +107,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
     public void test25_recurringEntries_returned() throws Exception {
         User user = createUser("user@example.com");
         authenticateAs(user);
+        createWorkingHours(user);
 
         LocalDate now = LocalDate.now();
 
@@ -103,13 +137,16 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
     public void test26_mixedEntries_sortedCorrectly() throws Exception {
         User user = createUser("user@example.com");
         authenticateAs(user);
+        createWorkingHours(user);
 
         LocalDate now = LocalDate.now();
+        Task task = createTask(user, "Afternoon Task");
 
         // Add ONE_TIME entry at 10:00
         ScheduleEntry oneTime = ScheduleEntry.builder()
                 .user(user)
                 .organization(user.getOrganization())
+                .task(task)
                 .entryDate(now)
                 .startTime(LocalTime.of(10, 0))
                 .endTime(LocalTime.of(11, 0))
@@ -144,12 +181,13 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
     }
 
     /**
-     * TEST 27: SKIPPED exception → entry omitted from response
+     * TEST 27: SKIPPED exception -> entry omitted from response
      */
     @Test
     public void test27_skippedException_omittedFromResponse() throws Exception {
         User user = createUser("user@example.com");
         authenticateAs(user);
+        createWorkingHours(user);
 
         LocalDate now = LocalDate.now();
         LocalDate tomorrow = now.plusDays(1);
@@ -168,16 +206,16 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(get("/schedule?from=" + now + "&to=" + tomorrow)
                 .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk());
-        // At least one entry should exist (tomorrow's occurrence if not skipped)
     }
 
     /**
-     * TEST 28: RESCHEDULED exception → moved to new date
+     * TEST 28: RESCHEDULED exception -> moved to new date
      */
     @Test
     public void test28_rescheduledException_movedToNewDate() throws Exception {
         User user = createUser("user@example.com");
         authenticateAs(user);
+        createWorkingHours(user);
 
         LocalDate now = LocalDate.now();
 
@@ -199,12 +237,13 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
     }
 
     /**
-     * TEST 29: COMPLETED exception → isCompleted=true on virtual entry
+     * TEST 29: COMPLETED exception -> isCompleted=true on virtual entry
      */
     @Test
     public void test29_completedException_markedCompleted() throws Exception {
         User user = createUser("user@example.com");
         authenticateAs(user);
+        createWorkingHours(user);
 
         LocalDate now = LocalDate.now();
 

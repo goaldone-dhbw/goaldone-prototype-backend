@@ -270,7 +270,7 @@ class RecurringTemplateServiceTest {
 
         assertThatThrownBy(() -> service.createOrUpdateException(templateId, request, userId, orgId))
             .isInstanceOf(ValidationException.class)
-            .hasMessage("newDate is required for RESCHEDULED exceptions");
+            .hasMessageContaining("newDate is required for RESCHEDULED exceptions");
     }
 
     // TEST 8 - createOrUpdateException: RESCHEDULED without newStartTime → 400
@@ -295,7 +295,7 @@ class RecurringTemplateServiceTest {
 
         assertThatThrownBy(() -> service.createOrUpdateException(templateId, request, userId, orgId))
             .isInstanceOf(ValidationException.class)
-            .hasMessage("newStartTime is required for RESCHEDULED exceptions");
+            .hasMessageContaining("newStartTime is required for RESCHEDULED exceptions");
     }
 
     // TEST 9 - deleteException: not found → 404

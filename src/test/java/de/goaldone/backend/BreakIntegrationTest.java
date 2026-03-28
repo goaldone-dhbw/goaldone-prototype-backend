@@ -101,7 +101,7 @@ public class BreakIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void getBreak_returns200() throws Exception {
+    public void listBreaks_afterCreate_containsBreak() throws Exception {
         User user = createUser("user@example.com");
         authenticateAs(user);
 
@@ -112,21 +112,15 @@ public class BreakIntegrationTest extends BaseIntegrationTest {
         request.setBreakType(BreakType.ONE_TIME);
         request.setDate(JsonNullable.of(LocalDate.now()));
 
-        String createResponse = mockMvc.perform(post("/breaks")
+        mockMvc.perform(post("/breaks")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isCreated())
-            .andReturn()
-            .getResponse()
-            .getContentAsString();
+            .andExpect(status().isCreated());
 
-        // Extract ID from response (simplified)
-        String breakId = objectMapper.readTree(createResponse).get("id").asText();
-
-        mockMvc.perform(get("/breaks/" + breakId)
+        mockMvc.perform(get("/breaks")
                 .contentType(MediaType.APPLICATION_JSON))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.label").value("Test Break"));
+            .andExpect(jsonPath("$[0].label").value("Test Break"));
     }
 
     @Test
@@ -158,7 +152,7 @@ public class BreakIntegrationTest extends BaseIntegrationTest {
         updateRequest.setBreakType(BreakType.ONE_TIME);
         updateRequest.setDate(JsonNullable.of(LocalDate.now()));
 
-        mockMvc.perform(patch("/breaks/" + breakId)
+        mockMvc.perform(put("/breaks/" + breakId)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(updateRequest)))
             .andExpect(status().isOk())

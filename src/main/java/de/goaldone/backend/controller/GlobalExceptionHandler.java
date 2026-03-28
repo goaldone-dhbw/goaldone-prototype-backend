@@ -57,7 +57,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ProblemDetail> handleValidation(ValidationException ex, HttpServletRequest request) {
         FieldError fieldError = FieldError.builder()
                 .field(ex.getField())
-                .message(ex.getMessage())
+                .message(ex.getDetail())
                 .build();
 
         ProblemDetail problem = buildProblem(HttpStatus.BAD_REQUEST, "Validation Error", "Invalid request content.", "validation-error", request);

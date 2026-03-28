@@ -5,7 +5,6 @@ import de.goaldone.backend.entity.RecurringException;
 import de.goaldone.backend.entity.RecurringTemplate;
 import de.goaldone.backend.entity.ScheduleEntry;
 import de.goaldone.backend.entity.Task;
-import de.goaldone.backend.entity.enums.CognitiveLoad;
 import de.goaldone.backend.entity.enums.ScheduleEntryType;
 import de.goaldone.backend.entity.enums.TaskStatus;
 import de.goaldone.backend.exception.ConflictException;
@@ -26,10 +25,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -145,7 +142,9 @@ public class ScheduleService {
         LocalDate from = request.getFrom();
         int maxDailyWorkMinutes = request.getMaxDailyWorkMinutes() != null ? request.getMaxDailyWorkMinutes() : 240;
 
-        // 1. Pre-flight Check
+        // ══════════════════════════════════════════════════════════
+        // 1. Pre-Flight & Validierung
+        // ══════════════════════════════════════════════════════════
         WorkingHoursResponse workingHoursResp;
         try {
             workingHoursResp = workingHoursService.getWorkingHours(userId);
@@ -161,37 +160,96 @@ public class ScheduleService {
 
         Map<DayOfWeek, WorkingHourEntry> workingHours = loadWorkingHoursMap(userId);
 
-        // 2. Load blocker lists once
-        List<ScheduleEntry> completedEntries = scheduleEntryRepository.findByUserIdAndEntryDateGreaterThanEqualAndIsCompletedTrue(userId, from);
-        List<ScheduleEntry> pinnedEntries = scheduleEntryRepository.findByUserIdAndEntryDateGreaterThanEqualAndIsPinnedTrue(userId, from);
-        List<Break> userBreaks = breakRepository.findByUserId(userId);
-        List<RecurringTemplate> userTemplates = recurringTemplateRepository.findByOwnerIdAndOrganizationId(userId, orgId);
+        // ══════════════════════════════════════════════════════════
+        // 2. Tabula Rasa & Blocker
+        // ══════════════════════════════════════════════════════════
 
-        // Load exceptions
-        List<UUID> templateIds = userTemplates.stream().map(RecurringTemplate::getId).collect(Collectors.toList());
-        final Map<String, RecurringException> exceptionsMap = new HashMap<>();
-        if (!templateIds.isEmpty()) {
-            recurringExceptionRepository.findByTemplateIdInAndOccurrenceDateBetween(templateIds, from, from.plusYears(1))
-                    .forEach(ex -> exceptionsMap.put(ex.getTemplate().getId() + "_" + ex.getOccurrenceDate(), ex));
+        // 2a. Lösche alle ScheduleEntries ab 'from' WHERE isCompleted == false AND isPinned == false
+        scheduleEntryRepository.deleteByUserIdAndEntryDateGreaterThanEqualAndIsCompletedFalseAndIsPinnedFalse(userId, from);
+        scheduleEntryRepository.flush();
+
+        // 2b. Blocker-Map aufbauen: Map<LocalDate, Integer> blockerMinutes
+        Map<LocalDate, Integer> blockerMinutes = new HashMap<>();
+        LocalDate recurringWindowEnd = from.plusDays(28);
+
+        // Completed Entries als Blocker
+        List<ScheduleEntry> completedEntries = scheduleEntryRepository
+                .findByUserIdAndEntryDateGreaterThanEqualAndIsCompletedTrue(userId, from);
+        for (ScheduleEntry e : completedEntries) {
+            int duration = (int) ChronoUnit.MINUTES.between(e.getStartTime(), e.getEndTime());
+            blockerMinutes.merge(e.getEntryDate(), duration, Integer::sum);
         }
 
-        // 3. Load only one-time tasks (recurrenceType IS NULL)
+        // Pinned Entries als Blocker
+        List<ScheduleEntry> pinnedEntries = scheduleEntryRepository
+                .findByUserIdAndEntryDateGreaterThanEqualAndIsPinnedTrue(userId, from);
+        for (ScheduleEntry e : pinnedEntries) {
+            int duration = (int) ChronoUnit.MINUTES.between(e.getStartTime(), e.getEndTime());
+            blockerMinutes.merge(e.getEntryDate(), duration, Integer::sum);
+        }
+
+        // 2c. Breaks als Blocker
+        List<Break> userBreaks = breakRepository.findByUserId(userId);
+        for (Break b : userBreaks) {
+            int breakDuration = (int) ChronoUnit.MINUTES.between(b.getStartTime(), b.getEndTime());
+            for (LocalDate day = from; !day.isAfter(recurringWindowEnd); day = day.plusDays(1)) {
+                if (BreakService.breaksBlocksDay(b, day)) {
+                    blockerMinutes.merge(day, breakDuration, Integer::sum);
+                }
+            }
+        }
+
+        // 2d. RecurringTemplates als Blocker (28-Tage-Fenster)
+        List<RecurringTemplate> userTemplates = recurringTemplateRepository
+                .findByOwnerIdAndOrganizationId(userId, orgId);
+        List<UUID> templateIds = userTemplates.stream()
+                .map(RecurringTemplate::getId).collect(Collectors.toList());
+
+        final Map<String, RecurringException> exceptionsMap = new HashMap<>();
+        if (!templateIds.isEmpty()) {
+            recurringExceptionRepository
+                    .findByTemplateIdInAndOccurrenceDateBetween(templateIds, from, recurringWindowEnd)
+                    .forEach(ex -> exceptionsMap.put(
+                            ex.getTemplate().getId() + "_" + ex.getOccurrenceDate(), ex));
+        }
+
+        for (RecurringTemplate t : userTemplates) {
+            for (LocalDate day = from; !day.isAfter(recurringWindowEnd); day = day.plusDays(1)) {
+                if (!recurrenceMatchesDay(t.getRecurrenceType(), t.getRecurrenceInterval(),
+                        t.getCreatedAt().toLocalDate(), day)) {
+                    continue;
+                }
+                String key = t.getId() + "_" + day;
+                RecurringException ex = exceptionsMap.get(key);
+                // Kein Budgetabzug wenn SKIPPED
+                if (ex != null && ex.getType() == RecurringExceptionType.SKIPPED) {
+                    continue;
+                }
+                blockerMinutes.merge(day, t.getDurationMinutes(), Integer::sum);
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════
+        // 3. Task Pool vorbereiten (nur einmalige Tasks)
+        // ══════════════════════════════════════════════════════════
         List<Task> allTasks = taskRepository.findByOwnerIdAndStatusInAndRecurrenceTypeIsNull(userId,
                 List.of(TaskStatus.OPEN, TaskStatus.IN_PROGRESS));
 
-        // 4. Initialize task pool
         List<TaskPoolEntry> pool = allTasks.stream()
                 .map(t -> new TaskPoolEntry(t, t.getEstimatedDurationMinutes()))
-                .collect(Collectors.toList());
+                .collect(Collectors.toCollection(ArrayList::new));
 
         LocalDate currentDay = from;
         LocalDate lastScheduledDay = null;
         List<ScheduleEntry> result = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
 
-        // 5. Outer Loop: Dynamic Horizon
+        // ══════════════════════════════════════════════════════════
+        // 4. Iteration: Tagesplanung (Dynamic Rolling Window)
+        // ══════════════════════════════════════════════════════════
         while (!pool.isEmpty()) {
-            // 5.1 Deadline Pruning
+
+            // 4a. Entferne Tasks mit Deadline < currentDay
             for (int i = pool.size() - 1; i >= 0; i--) {
                 TaskPoolEntry e = pool.get(i);
                 if (e.getTask().getDeadline() != null && e.getTask().getDeadline().isBefore(currentDay)) {
@@ -201,7 +259,7 @@ public class ScheduleService {
             }
             if (pool.isEmpty()) break;
 
-            // 5.2 Skip non-working days
+            // 4b. Nicht-Arbeitstage überspringen
             Optional<WorkingHourEntry> optWorkDay = getWorkingHourEntry(workingHours, currentDay.getDayOfWeek());
             if (optWorkDay.isEmpty() || !optWorkDay.get().isWorkDay()) {
                 currentDay = currentDay.plusDays(1);
@@ -210,9 +268,10 @@ public class ScheduleService {
             WorkingHourEntry workDay = optWorkDay.get();
             final LocalDate dayForFilter = currentDay;
 
-            // 5.3 startDate Filter: only ready tasks
+            // 4c. startDate-Filter: Tasks mit startDate > currentDay temporär ausfiltern
             List<TaskPoolEntry> readyTasks = pool.stream()
-                    .filter(e -> e.getTask().getStartDate() == null || !e.getTask().getStartDate().isAfter(dayForFilter))
+                    .filter(e -> e.getTask().getStartDate() == null
+                            || !e.getTask().getStartDate().isAfter(dayForFilter))
                     .collect(Collectors.toList());
 
             if (readyTasks.isEmpty()) {
@@ -220,21 +279,27 @@ public class ScheduleService {
                 continue;
             }
 
-            // 5.4 MSTF: Calculate slack and sort
+            // 4d. MSTF: Slack berechnen und sortieren
             for (TaskPoolEntry e : readyTasks) {
                 if (e.getTask().getDeadline() == null) {
                     e.setSlack(Integer.MAX_VALUE);
                 } else {
-                    int needed = (int) Math.ceil((double) e.getRestDurationMinutes() / maxDailyWorkMinutes);
-                    e.setSlack(countWorkdaysBetween(currentDay, e.getTask().getDeadline(), workingHours) - needed);
+                    int needed = (int) Math.ceil(
+                            (double) e.getRestDurationMinutes() / maxDailyWorkMinutes);
+                    e.setSlack(countWorkdaysBetween(currentDay, e.getTask().getDeadline(), workingHours)
+                            - needed);
                 }
             }
-            readyTasks.sort(Comparator.comparingInt(TaskPoolEntry::getSlack)
-                    .thenComparingInt(e -> e.getTask().getCognitiveLoad().ordinal()));
 
-            // 5.5 Lazy budget calculation
-            int budget = computeBudget(currentDay, maxDailyWorkMinutes, completedEntries, pinnedEntries,
-                    userBreaks, userTemplates, exceptionsMap);
+            // Sortierung: 1. Slack aufsteigend (∞ ans Ende), 2. CognitiveLoad HIGH zuerst
+            readyTasks.sort(Comparator.comparingInt(TaskPoolEntry::getSlack)
+                    .thenComparing((a, b) -> b.getTask().getCognitiveLoad().ordinal()
+                            - a.getTask().getCognitiveLoad().ordinal()));
+
+            // 4e. Freies Tagesbudget berechnen
+            int blocked = blockerMinutes.getOrDefault(currentDay, 0);
+            int budget = Math.max(0, maxDailyWorkMinutes - blocked);
+
             if (budget <= 0) {
                 currentDay = currentDay.plusDays(1);
                 continue;
@@ -242,19 +307,22 @@ public class ScheduleService {
 
             int currentMinuteOffset = 0;
 
-            // 5.6 Inner Loop: Schedule tasks for the day
+            // 4f. Inner Loop: Tasks für den Tag einplanen
             for (TaskPoolEntry entry : readyTasks) {
                 if (budget <= 0) break;
 
                 if (entry.getRestDurationMinutes() <= budget) {
-                    result.add(createEntry(entry.getTask(), currentDay, entry.getRestDurationMinutes(), workDay, currentMinuteOffset));
+                    // Task passt komplett
+                    result.add(createEntry(entry.getTask(), currentDay,
+                            entry.getRestDurationMinutes(), workDay, currentMinuteOffset));
                     currentMinuteOffset += entry.getRestDurationMinutes();
                     budget -= entry.getRestDurationMinutes();
                     lastScheduledDay = currentDay;
                     pool.remove(entry);
                 } else {
-                    result.add(createEntry(entry.getTask(), currentDay, budget, workDay, currentMinuteOffset));
-                    currentMinuteOffset += budget;
+                    // Splitting nötig
+                    result.add(createEntry(entry.getTask(), currentDay,
+                            budget, workDay, currentMinuteOffset));
                     entry.setRestDurationMinutes(entry.getRestDurationMinutes() - budget);
                     lastScheduledDay = currentDay;
                     budget = 0;
@@ -264,13 +332,11 @@ public class ScheduleService {
             currentDay = currentDay.plusDays(1);
         }
 
-        // 6. Persist
-        // Delete existing entries starting from 'from' that are not completed/pinned
-        scheduleEntryRepository.deleteByUserIdAndEntryDateGreaterThanEqualAndIsCompletedFalseAndIsPinnedFalse(userId, from);
-        scheduleEntryRepository.flush();
+        // ══════════════════════════════════════════════════════════
+        // 5. Post-Processing & Persistierung
+        // ══════════════════════════════════════════════════════════
         scheduleEntryRepository.saveAll(result);
 
-        // 7. Build response
         LocalDate responseTo = lastScheduledDay != null ? lastScheduledDay : from;
         int totalWorkMinutes = result.stream()
                 .filter(e -> e.getEntryType() == ScheduleEntryType.TASK)
@@ -286,54 +352,6 @@ public class ScheduleService {
         response.setEntries(result.stream().map(this::toScheduleEntryDto).collect(Collectors.toList()));
 
         return response;
-    }
-
-    /**
-     * Lazy budget calculation per day.
-     * Returns the available budget (in minutes) after accounting for all blockers.
-     */
-    private int computeBudget(LocalDate day, int maxDailyWorkMinutes,
-                             List<ScheduleEntry> completedEntries,
-                             List<ScheduleEntry> pinnedEntries,
-                             List<Break> userBreaks,
-                             List<RecurringTemplate> userTemplates,
-                             Map<String, RecurringException> exceptionsMap) {
-        int blocked = 0;
-
-        // Completed entries on this day
-        for (ScheduleEntry e : completedEntries) {
-            if (e.getEntryDate().equals(day)) {
-                blocked += (int) ChronoUnit.MINUTES.between(e.getStartTime(), e.getEndTime());
-            }
-        }
-
-        // Pinned entries on this day
-        for (ScheduleEntry e : pinnedEntries) {
-            if (e.getEntryDate().equals(day)) {
-                blocked += (int) ChronoUnit.MINUTES.between(e.getStartTime(), e.getEndTime());
-            }
-        }
-
-        // Breaks on this day (using BreakService helper)
-        for (Break b : userBreaks) {
-            if (BreakService.breaksBlocksDay(b, day)) {
-                blocked += ChronoUnit.MINUTES.between(b.getStartTime(), b.getEndTime());
-            }
-        }
-
-        // RecurringTemplates (unless SKIPPED)
-        for (RecurringTemplate t : userTemplates) {
-            if (recurrenceMatchesDay(t.getRecurrenceType(), t.getRecurrenceInterval(),
-                    t.getCreatedAt().toLocalDate(), day)) {
-                String key = t.getId() + "_" + day;
-                RecurringException ex = exceptionsMap.get(key);
-                if (ex == null || ex.getType() != RecurringExceptionType.SKIPPED) {
-                    blocked += t.getDurationMinutes();
-                }
-            }
-        }
-
-        return Math.max(0, maxDailyWorkMinutes - blocked);
     }
 
     /**

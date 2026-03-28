@@ -121,12 +121,17 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
         String responseBody = createResult.getResponse().getContentAsString();
         RecurringTemplateResponse created = objectMapper.readValue(responseBody, RecurringTemplateResponse.class);
 
-        // Update
+        // Update (PUT replaces the full resource, so all required fields must be set)
         UpdateRecurringTemplateRequest updateReq = new UpdateRecurringTemplateRequest();
         updateReq.setTitle("Updated Title");
+        updateReq.setCognitiveLoad(CognitiveLoad.LOW);
         updateReq.setDurationMinutes(60);
+        RecurrenceRule updateRule = new RecurrenceRule();
+        updateRule.setType(RecurrenceType.DAILY);
+        updateRule.setInterval(1);
+        updateReq.setRecurrenceRule(updateRule);
 
-        mockMvc.perform(patch("/recurring-templates/" + created.getId())
+        mockMvc.perform(put("/recurring-templates/" + created.getId())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(updateReq)))
             .andExpect(status().isOk())
@@ -219,6 +224,17 @@ class RecurringTemplateIntegrationTest extends BaseIntegrationTest {
 
         LocalDate occurrenceDate = LocalDate.now();
 
+        // First create the exception
+        RecurringExceptionRequest exceptionReq = new RecurringExceptionRequest();
+        exceptionReq.setType(RecurringExceptionType.SKIPPED);
+        exceptionReq.setOccurrenceDate(occurrenceDate);
+
+        mockMvc.perform(post("/schedule/recurring/" + created.getId() + "/exceptions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(exceptionReq)))
+            .andExpect(status().isCreated());
+
+        // Then delete it
         mockMvc.perform(delete("/schedule/recurring/" + created.getId() + "/exceptions/" + occurrenceDate))
             .andExpect(status().isNoContent());
     }
