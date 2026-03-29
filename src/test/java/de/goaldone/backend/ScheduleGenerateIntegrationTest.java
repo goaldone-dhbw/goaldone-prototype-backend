@@ -56,7 +56,7 @@ class ScheduleGenerateIntegrationTest extends BaseIntegrationTest {
                 .build());
 
         GenerateScheduleRequest request = new GenerateScheduleRequest();
-        request.setFrom(LocalDate.now());
+        request.setFrom(LocalDate.of(2026, 3, 30)); // A Monday
 
         mockMvc.perform(post("/schedule/generate")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -73,7 +73,7 @@ class ScheduleGenerateIntegrationTest extends BaseIntegrationTest {
         authenticateAs(user);
 
         GenerateScheduleRequest request = new GenerateScheduleRequest();
-        request.setFrom(LocalDate.now());
+        request.setFrom(LocalDate.of(2026, 3, 30)); // A Monday
 
         mockMvc.perform(post("/schedule/generate")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -88,7 +88,7 @@ class ScheduleGenerateIntegrationTest extends BaseIntegrationTest {
         createWorkingHours(user);
 
         GenerateScheduleRequest request = new GenerateScheduleRequest();
-        request.setFrom(LocalDate.now());
+        request.setFrom(LocalDate.of(2026, 3, 30)); // A Monday
 
         mockMvc.perform(post("/schedule/generate")
                 .contentType(MediaType.APPLICATION_JSON)

@@ -48,6 +48,25 @@ class TasksControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    void createTask_invalidDates_returns400() throws Exception {
+        User user = createUser("user@example.com");
+        authenticateAs(user);
+
+        CreateTaskRequest request = new CreateTaskRequest();
+        request.setTitle("Invalid Dates Task");
+        request.setCognitiveLoad(CognitiveLoad.MEDIUM);
+        request.setEstimatedDurationMinutes(60);
+        request.setStartDate(org.openapitools.jackson.nullable.JsonNullable.of(java.time.LocalDate.now().plusDays(2)));
+        request.setDeadline(org.openapitools.jackson.nullable.JsonNullable.of(java.time.LocalDate.now().plusDays(1))); // Deadline before StartDate
+
+        mockMvc.perform(post("/tasks")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.errors[0].field").value("deadline"));
+    }
+
+    @Test
     void listTasks_returns200() throws Exception {
         User user = createUser("user@example.com");
         authenticateAs(user);

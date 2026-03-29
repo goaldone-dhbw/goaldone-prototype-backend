@@ -78,7 +78,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
         authenticateAs(user);
         createWorkingHours(user);
 
-        LocalDate now = LocalDate.now();
+        LocalDate now = LocalDate.of(2026, 3, 30); // A Monday
         Task task = createTask(user, "Test Task");
 
         ScheduleEntry entry = ScheduleEntry.builder()
@@ -109,7 +109,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
         authenticateAs(user);
         createWorkingHours(user);
 
-        LocalDate now = LocalDate.now();
+        LocalDate now = LocalDate.of(2026, 3, 30); // A Monday
 
         RecurringTemplate template = RecurringTemplate.builder()
                 .title("Daily Standup")
@@ -139,7 +139,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
         authenticateAs(user);
         createWorkingHours(user);
 
-        LocalDate now = LocalDate.now();
+        LocalDate now = LocalDate.of(2026, 3, 30); // A Monday
         Task task = createTask(user, "Afternoon Task");
 
         // Add ONE_TIME entry at 10:00
@@ -189,7 +189,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
         authenticateAs(user);
         createWorkingHours(user);
 
-        LocalDate now = LocalDate.now();
+        LocalDate now = LocalDate.of(2026, 3, 30); // A Monday
         LocalDate tomorrow = now.plusDays(1);
 
         RecurringTemplate template = RecurringTemplate.builder()
@@ -217,7 +217,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
         authenticateAs(user);
         createWorkingHours(user);
 
-        LocalDate now = LocalDate.now();
+        LocalDate now = LocalDate.of(2026, 3, 30); // A Monday
 
         RecurringTemplate template = RecurringTemplate.builder()
                 .title("Meeting")
@@ -245,7 +245,7 @@ public class ScheduleIntegrationTest extends BaseIntegrationTest {
         authenticateAs(user);
         createWorkingHours(user);
 
-        LocalDate now = LocalDate.now();
+        LocalDate now = LocalDate.of(2026, 3, 30); // A Monday
 
         RecurringTemplate template = RecurringTemplate.builder()
                 .title("Daily Review")

@@ -16,3 +16,8 @@ spring:
     properties:
       hibernate:
         format_sql: true
+
+management:
+  health:
+    mail:
+      enabled: false
