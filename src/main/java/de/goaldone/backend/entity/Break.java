@@ -1,9 +1,11 @@
 package de.goaldone.backend.entity;
 
 import de.goaldone.backend.entity.enums.RecurrenceType;
+import de.goaldone.backend.model.BreakType;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.UUID;
 
@@ -30,15 +32,31 @@ public class Break {
     private LocalTime endTime;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "recurrence_type", nullable = false)
+    @Column(name = "break_type", nullable = false)
+    private BreakType breakType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "recurrence_type")
     private RecurrenceType recurrenceType;
 
-    @Column(name = "recurrence_interval", nullable = false)
+    @Column(name = "recurrence_interval")
     private Integer recurrenceInterval;
+
+    @Column(name = "date")
+    private LocalDate date;
+
+    @Column(name = "valid_from")
+    private LocalDate validFrom;
+
+    @Column(name = "valid_until")
+    private LocalDate validUntil;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
+
+    @Column(name = "organization_id", nullable = false)
+    private UUID organizationId;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

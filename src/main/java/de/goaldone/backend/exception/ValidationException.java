@@ -5,12 +5,12 @@ import lombok.Getter;
 @Getter
 public class ValidationException extends RuntimeException {
     private final String field;
-    private final String message;
+    private final String detail;
 
-    public ValidationException(String field, String message) {
-        super(field + ": " + message);
+    public ValidationException(String field, String detail) {
+        super(field + ": " + detail);
         this.field = field;
-        this.message = message;
+        this.detail = detail;
     }
 
     @Override

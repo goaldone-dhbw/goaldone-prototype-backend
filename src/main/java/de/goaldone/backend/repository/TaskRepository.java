@@ -34,4 +34,6 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
     );
 
     List<Task> findByOwnerIdAndStatusInOrderByDeadlineAscCognitiveLoadDesc(UUID ownerId, Collection<TaskStatus> statuses);
+
+    List<Task> findByOwnerIdAndStatusInAndRecurrenceTypeIsNull(UUID ownerId, Collection<TaskStatus> statuses);
 }

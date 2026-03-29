@@ -58,9 +58,6 @@ public class TaskService {
         validationService.requireMaxLength(request.getTitle(), "title", 255);
         validationService.requireNotNull(request.getCognitiveLoad(), "cognitiveLoad");
         validationService.requirePositive(request.getEstimatedDurationMinutes(), "estimatedDurationMinutes");
-        if (request.getRecurrence() != null) {
-            validationService.requirePositive(request.getRecurrence().getInterval(), "recurrence.interval");
-        }
 
         User owner = userRepository.findById(ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -82,12 +79,6 @@ public class TaskService {
                 .owner(owner)
                 .organization(customOrg)
                 .build();
-
-
-        if (request.getRecurrence() != null) {
-            task.setRecurrenceType(de.goaldone.backend.entity.enums.RecurrenceType.valueOf(request.getRecurrence().getType().getValue()));
-            task.setRecurrenceInterval(request.getRecurrence().getInterval());
-        }
 
         task = taskRepository.save(task);
 
@@ -118,9 +109,6 @@ public class TaskService {
         if (request.getEstimatedDurationMinutes() != null) {
             validationService.requirePositive(request.getEstimatedDurationMinutes(), "estimatedDurationMinutes");
         }
-        if (request.getRecurrence() != null) {
-            validationService.requirePositive(request.getRecurrence().getInterval(), "recurrence.interval");
-        }
 
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
@@ -132,7 +120,7 @@ public class TaskService {
         if (request.getTitle() != null) {
              task.setTitle(request.getTitle());
         }
-        
+
         if (request.getDescription().isPresent()) {
             task.setDescription(request.getDescription().get());
         }
@@ -151,12 +139,6 @@ public class TaskService {
 
         if (request.getStartDate().isPresent()) {
             task.setStartDate(request.getStartDate().get());
-        }
-
-        if (request.getRecurrence() != null) {
-             RecurrenceRule rule = request.getRecurrence();
-             task.setRecurrenceType(de.goaldone.backend.entity.enums.RecurrenceType.valueOf(rule.getType().getValue()));
-             task.setRecurrenceInterval(rule.getInterval());
         }
 
         task = taskRepository.save(task);
@@ -216,14 +198,6 @@ public class TaskService {
     }
 
     private TaskResponse mapToTaskResponse(Task task) {
-        RecurrenceRule recurrenceRule = null;
-        if (task.getRecurrenceType() != null) {
-            recurrenceRule = RecurrenceRule.builder()
-                    .type(RecurrenceType.fromValue(task.getRecurrenceType().name()))
-                    .interval(task.getRecurrenceInterval())
-                    .build();
-        }
-
         return TaskResponse.builder()
                 .id(task.getId())
                 .title(task.getTitle())
@@ -233,7 +207,6 @@ public class TaskService {
                 .estimatedDurationMinutes(task.getEstimatedDurationMinutes())
                 .deadline(JsonNullable.of(task.getDeadline()))
                 .startDate(JsonNullable.of(task.getStartDate()))
-                .recurrence(recurrenceRule)
                 .ownerId(task.getOwner().getId())
                 .organizationId(task.getOrganization().getId())
                 .parentTaskId(task.getParentTask() != null ? JsonNullable.of(task.getParentTask().getId()) : JsonNullable.undefined())
