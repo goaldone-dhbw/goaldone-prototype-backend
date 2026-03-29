@@ -3,10 +3,8 @@ package de.goaldone.backend;
 import de.goaldone.backend.entity.User;
 import de.goaldone.backend.model.CognitiveLoad;
 import de.goaldone.backend.model.CreateTaskRequest;
-import de.goaldone.backend.model.TaskResponse;
 import de.goaldone.backend.model.UpdateTaskRequest;
 import org.junit.jupiter.api.Test;
-import org.openapitools.jackson.nullable.JsonNullable;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -79,7 +77,7 @@ class TasksControllerIntegrationTest extends BaseIntegrationTest {
         String taskId = createTaskAndGetId(user);
 
         UpdateTaskRequest updateReq = new UpdateTaskRequest();
-        updateReq.setTitle(String.valueOf(JsonNullable.of("Updated Title")));
+        updateReq.setTitle("Updated Title");
 
         mockMvc.perform(put("/tasks/" + taskId)
                 .contentType(MediaType.APPLICATION_JSON)

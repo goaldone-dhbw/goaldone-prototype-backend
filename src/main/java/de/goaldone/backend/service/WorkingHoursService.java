@@ -64,7 +64,8 @@ public class WorkingHoursService {
                 .map(e -> new WorkWindow(e.getStartTime(), e.getEndTime()));
     }
 
-    public record WorkWindow(LocalTime startTime, LocalTime endTime) {}
+    public record WorkWindow(LocalTime startTime, LocalTime endTime) {
+    }
 
     @Transactional
     public WorkingHoursResponse upsertWorkingHours(UpsertWorkingHoursRequest request, UUID userId) {
@@ -73,16 +74,37 @@ public class WorkingHoursService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        // Atomically replace: Delete old, Insert new
-        workingHourEntryRepository.deleteByUserId(userId);
+        List<WorkingHourEntry> existingEntries = workingHourEntryRepository.findByUserId(userId);
 
-        List<WorkingHourEntry> newEntries = request.getDays().stream()
-                .map(dayRequest -> mapToEntity(dayRequest, user))
-                .collect(Collectors.toList());
+        List<WorkingHourEntry> finalEntries;
+        if (existingEntries.isEmpty()) {
+            finalEntries = request.getDays().stream()
+                    .map(dayRequest -> mapToEntity(dayRequest, user))
+                    .collect(Collectors.toList());
+        } else {
+            finalEntries = request.getDays().stream()
+                    .map(dayRequest -> {
+                        DayOfWeek dow = DayOfWeek.valueOf(dayRequest.getDayOfWeek().getValue());
+                        WorkingHourEntry existing = existingEntries.stream()
+                                .filter(e -> e.getDayOfWeek() == dow)
+                                .findFirst()
+                                .orElseThrow(() -> new ValidationException("dayOfWeek", ERR_MISSING_DAY));
 
-        workingHourEntryRepository.saveAll(newEntries);
+                        updateEntity(existing, dayRequest);
+                        return existing;
+                    })
+                    .collect(Collectors.toList());
+        }
 
-        return mapToResponse(newEntries);
+        workingHourEntryRepository.saveAll(finalEntries);
+
+        return mapToResponse(finalEntries);
+    }
+
+    private void updateEntity(WorkingHourEntry entity, WorkingHoursDayEntry dayRequest) {
+        entity.setWorkDay(Boolean.TRUE.equals(dayRequest.getIsWorkDay()));
+        entity.setStartTime(dayRequest.getStartTime() != null ? LocalTime.parse(dayRequest.getStartTime()) : null);
+        entity.setEndTime(dayRequest.getEndTime() != null ? LocalTime.parse(dayRequest.getEndTime()) : null);
     }
 
     private void validateUpsertRequest(UpsertWorkingHoursRequest request) {
