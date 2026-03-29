@@ -5,6 +5,7 @@ import de.goaldone.backend.entity.RecurringException;
 import de.goaldone.backend.entity.RecurringTemplate;
 import de.goaldone.backend.entity.ScheduleEntry;
 import de.goaldone.backend.entity.Task;
+import de.goaldone.backend.entity.enums.CognitiveLoad;
 import de.goaldone.backend.entity.enums.ScheduleEntryType;
 import de.goaldone.backend.entity.enums.TaskStatus;
 import de.goaldone.backend.exception.ConflictException;
@@ -152,7 +153,7 @@ public class ScheduleService {
                     RecurringTemplate t = templates.stream().filter(temp -> temp.getId().equals(templateId)).findFirst().orElse(null);
                     String key = templateId + "_" + e.getOccurrenceDate().get();
                     RecurringException ex = exceptionsMap.get(key);
-                    
+
                     // Flexible if template has no preferred start time AND no rescheduled exception
                     if (t != null && t.getPreferredStartTime() == null) {
                         if (ex == null || ex.getType() != RecurringExceptionType.RESCHEDULED) {
@@ -160,7 +161,7 @@ public class ScheduleService {
                         }
                     }
                 }
-                
+
                 if (isFlexible) {
                     flexible.add(e);
                 } else {
@@ -194,23 +195,23 @@ public class ScheduleService {
 
             for (de.goaldone.backend.model.ScheduleEntry flex : flexible) {
                 int duration = (int) ChronoUnit.MINUTES.between(LocalTime.parse(flex.getStartTime()), LocalTime.parse(flex.getEndTime()));
-                
+
                 // Find first gap large enough
                 LocalTime searchStart = workdayStart;
                 boolean found = false;
-                
+
                 while (!found && !searchStart.plusMinutes(duration).isAfter(workdayEnd)) {
                     LocalTime gapEnd = searchStart.plusMinutes(duration);
                     final LocalTime finalSearchStart = searchStart;
                     final LocalTime finalGapEnd = gapEnd;
-                    
+
                     // Check if gap overlaps with any already placed entry
                     boolean overlaps = placed.stream().anyMatch(p -> {
                         LocalTime pStart = LocalTime.parse(p.getStartTime());
                         LocalTime pEnd = LocalTime.parse(p.getEndTime());
                         return finalSearchStart.isBefore(pEnd) && finalGapEnd.isAfter(pStart);
                     });
-                    
+
                     if (!overlaps) {
                         flex.setStartTime(searchStart.toString());
                         flex.setEndTime(gapEnd.toString());
@@ -221,14 +222,14 @@ public class ScheduleService {
                     } else {
                         // Move searchStart to the end of the first overlapping entry to find next gap
                         LocalTime nextPotential = placed.stream()
-                            .filter(p -> LocalTime.parse(p.getStartTime()).isBefore(finalGapEnd) && LocalTime.parse(p.getEndTime()).isAfter(finalSearchStart))
-                            .map(p -> LocalTime.parse(p.getEndTime()))
-                            .max(Comparator.naturalOrder())
-                            .orElse(searchStart.plusMinutes(1));
+                                .filter(p -> LocalTime.parse(p.getStartTime()).isBefore(finalGapEnd) && LocalTime.parse(p.getEndTime()).isAfter(finalSearchStart))
+                                .map(p -> LocalTime.parse(p.getEndTime()))
+                                .max(Comparator.naturalOrder())
+                                .orElse(searchStart.plusMinutes(1));
                         searchStart = nextPotential;
                     }
                 }
-                
+
                 if (!found) {
                     // If no gap found, append to the end and shift (it will probably go beyond workdayEnd)
                     LocalTime lastEnd = placed.isEmpty() ? workdayStart : placed.stream().map(p -> LocalTime.parse(p.getEndTime())).max(Comparator.naturalOrder()).get();
@@ -329,7 +330,7 @@ public class ScheduleService {
                 if (optWorkDay.isEmpty() || !optWorkDay.get().isWorkDay()) continue;
 
                 if (!recurrenceMatchesDay(t.getRecurrenceType(), t.getRecurrenceInterval(), t.getCreatedAt().toLocalDate(), day)) continue;
-                
+
                 String key = t.getId() + "_" + day;
                 RecurringException ex = exceptionsMap.get(key);
                 if (ex != null && ex.getType() == RecurringExceptionType.SKIPPED) continue;
@@ -337,7 +338,7 @@ public class ScheduleService {
                 LocalTime start = t.getPreferredStartTime();
                 boolean isFlexible = (start == null);
                 if (start == null) start = optWorkDay.get().getStartTime();
-                
+
                 if (ex != null && ex.getType() == RecurringExceptionType.RESCHEDULED) {
                     if (ex.getNewStartTime() != null) start = ex.getNewStartTime();
                     isFlexible = false; // Rescheduled is fixed
@@ -351,7 +352,7 @@ public class ScheduleService {
         for (Map.Entry<LocalDate, List<BlockerItem>> entry : dailyBlockers.entrySet()) {
             LocalDate day = entry.getKey();
             List<BlockerItem> items = entry.getValue();
-            
+
             List<BlockerItem> fixed = items.stream().filter(i -> !i.isFlexible).collect(Collectors.toList());
             List<BlockerItem> flexible = items.stream().filter(i -> i.isFlexible).collect(Collectors.toList());
 
@@ -392,10 +393,10 @@ public class ScheduleService {
                         found = true;
                     } else {
                         LocalTime nextPotential = placed.stream()
-                            .filter(p -> p.start.isBefore(finalGapEnd) && p.start.plusMinutes(p.duration).isAfter(finalSearchStart))
-                            .map(p -> p.start.plusMinutes(p.duration))
-                            .max(Comparator.naturalOrder())
-                            .orElse(searchStart.plusMinutes(1));
+                                .filter(p -> p.start.isBefore(finalGapEnd) && p.start.plusMinutes(p.duration).isAfter(finalSearchStart))
+                                .map(p -> p.start.plusMinutes(p.duration))
+                                .max(Comparator.naturalOrder())
+                                .orElse(searchStart.plusMinutes(1));
                         searchStart = nextPotential;
                     }
                 }
@@ -475,12 +476,13 @@ public class ScheduleService {
             }
 
             // 4d. MSTF: Slack berechnen und sortieren
+            int workdayCapacity = (int) ChronoUnit.MINUTES.between(workDay.getStartTime(), workDay.getEndTime());
             for (TaskPoolEntry e : readyTasks) {
                 if (e.getTask().getDeadline() == null) {
                     e.setSlack(Integer.MAX_VALUE);
                 } else {
                     int needed = (int) Math.ceil(
-                            (double) e.getRestDurationMinutes() / maxDailyWorkMinutes);
+                            (double) e.getRestDurationMinutes() / workdayCapacity);
                     e.setSlack(countWorkdaysBetween(currentDay, e.getTask().getDeadline(), workingHours)
                             - needed);
                 }
@@ -491,9 +493,9 @@ public class ScheduleService {
                     .thenComparing((a, b) -> b.getTask().getCognitiveLoad().ordinal()
                             - a.getTask().getCognitiveLoad().ordinal()));
 
-            // 4e. Freies Tagesbudget berechnen
+            // 4e. Freies Tagesbudget berechnen (basiert auf tatsächlicher Arbeitszeit, nicht maxDailyWorkMinutes)
             int blocked = blockerMinutes.getOrDefault(currentDay, 0);
-            int budget = Math.max(0, maxDailyWorkMinutes - blocked);
+            int budget = Math.max(0, workdayCapacity - blocked);
 
             if (budget <= 0) {
                 currentDay = currentDay.plusDays(1);
@@ -501,26 +503,61 @@ public class ScheduleService {
             }
 
             int currentMinuteOffset = 0;
+            int continuousHighCogMinutes = 0;
 
             // 4f. Inner Loop: Tasks für den Tag einplanen
+            // HIGH-Tasks dürfen maximal maxDailyWorkMinutes am Stück laufen.
+            // Danach muss ein MEDIUM/LOW-Task dazwischen (Option B: falls keine Alternative
+            // vorhanden, Zähler zurücksetzen und HIGH fortsetzen).
             for (TaskPoolEntry entry : readyTasks) {
                 if (budget <= 0) break;
 
-                if (entry.getRestDurationMinutes() <= budget) {
-                    // Task passt komplett
-                    result.add(createEntry(entry.getTask(), currentDay,
-                            entry.getRestDurationMinutes(), workDay, currentMinuteOffset));
-                    currentMinuteOffset += entry.getRestDurationMinutes();
-                    budget -= entry.getRestDurationMinutes();
+                boolean isHigh = entry.getTask().getCognitiveLoad() == CognitiveLoad.HIGH;
+
+                if (isHigh) {
+                    int remainingHighBudget = maxDailyWorkMinutes - continuousHighCogMinutes;
+
+                    if (remainingHighBudget <= 0) {
+                        boolean hasAlternative = readyTasks.stream()
+                                .filter(e -> e != entry)
+                                .anyMatch(e -> e.getTask().getCognitiveLoad() != CognitiveLoad.HIGH);
+                        if (hasAlternative) {
+                            continue; // MEDIUM/LOW-Task soll zuerst eingeschoben werden
+                        }
+                        // Option B: keine Alternative vorhanden – Zähler zurücksetzen und HIGH fortsetzen
+                        continuousHighCogMinutes = 0;
+                        remainingHighBudget = maxDailyWorkMinutes;
+                    }
+
+                    int chunkSize = Math.min(entry.getRestDurationMinutes(), Math.min(budget, remainingHighBudget));
+                    result.add(createEntry(entry.getTask(), currentDay, chunkSize, workDay, currentMinuteOffset));
+                    currentMinuteOffset += chunkSize;
+                    budget -= chunkSize;
                     lastScheduledDay = currentDay;
-                    pool.remove(entry);
+                    continuousHighCogMinutes += chunkSize;
+
+                    if (chunkSize >= entry.getRestDurationMinutes()) {
+                        pool.remove(entry);
+                    } else {
+                        entry.setRestDurationMinutes(entry.getRestDurationMinutes() - chunkSize);
+                    }
                 } else {
-                    // Splitting nötig
-                    result.add(createEntry(entry.getTask(), currentDay,
-                            budget, workDay, currentMinuteOffset));
-                    entry.setRestDurationMinutes(entry.getRestDurationMinutes() - budget);
-                    lastScheduledDay = currentDay;
-                    budget = 0;
+                    // MEDIUM oder LOW – normal einplanen, Zähler zurücksetzen
+                    if (entry.getRestDurationMinutes() <= budget) {
+                        result.add(createEntry(entry.getTask(), currentDay,
+                                entry.getRestDurationMinutes(), workDay, currentMinuteOffset));
+                        currentMinuteOffset += entry.getRestDurationMinutes();
+                        budget -= entry.getRestDurationMinutes();
+                        lastScheduledDay = currentDay;
+                        pool.remove(entry);
+                    } else {
+                        result.add(createEntry(entry.getTask(), currentDay,
+                                budget, workDay, currentMinuteOffset));
+                        entry.setRestDurationMinutes(entry.getRestDurationMinutes() - budget);
+                        lastScheduledDay = currentDay;
+                        budget = 0;
+                    }
+                    continuousHighCogMinutes = 0;
                 }
             }
 
@@ -587,7 +624,7 @@ public class ScheduleService {
      * MVP-focused: all WEEKLY/MONTHLY Tage that match the day-of-week/day-of-month are included.
      */
     private boolean recurrenceMatchesDay(de.goaldone.backend.entity.enums.RecurrenceType type, Integer interval,
-                                        LocalDate baseDate, LocalDate currentDay) {
+                                         LocalDate baseDate, LocalDate currentDay) {
         if (type == null) return false;
         if (interval == null || interval < 1) interval = 1;
 
