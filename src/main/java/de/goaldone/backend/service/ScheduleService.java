@@ -57,9 +57,13 @@ public class ScheduleService {
     public ScheduleResponse getSchedule(UUID userId, LocalDate from, LocalDate to) {
         // Load real ScheduleEntries (ONE_TIME)
         List<ScheduleEntry> realEntries = scheduleEntryRepository.findByUserIdAndEntryDateBetween(userId, from, to);
-        List<de.goaldone.backend.model.ScheduleEntry> result = realEntries.stream()
-                .map(this::toScheduleEntryDto)
-                .collect(Collectors.toList());
+        // Map to group entries by date for overlap resolution
+        Map<LocalDate, List<de.goaldone.backend.model.ScheduleEntry>> entriesByDate = new HashMap<>();
+
+        // Add real entries to the map
+        for (de.goaldone.backend.model.ScheduleEntry entry : realEntries.stream().map(this::toScheduleEntryDto).toList()) {
+            entriesByDate.computeIfAbsent(entry.getDate(), k -> new ArrayList<>()).add(entry);
+        }
 
         // Load RecurringTemplates and build virtual entries (RECURRING) on-the-fly
         List<RecurringTemplate> templates = recurringTemplateRepository.findByOwnerIdAndOrganizationId(
@@ -78,6 +82,12 @@ public class ScheduleService {
 
         for (RecurringTemplate template : templates) {
             for (LocalDate day = from; !day.isAfter(to); day = day.plusDays(1)) {
+                // Skip non-workdays
+                Optional<WorkingHourEntry> optWorkDay = getWorkingHourEntry(workingHours, day.getDayOfWeek());
+                if (optWorkDay.isEmpty() || !optWorkDay.get().isWorkDay()) {
+                    continue;
+                }
+
                 if (!recurrenceMatchesDay(template.getRecurrenceType(), template.getRecurrenceInterval(),
                         template.getCreatedAt().toLocalDate(), day)) {
                     continue;
@@ -92,10 +102,10 @@ public class ScheduleService {
                 }
 
                 LocalDate displayDate = day;
+                WorkingHourEntry workDay = optWorkDay.get();
                 LocalTime displayStart = template.getPreferredStartTime();
                 if (displayStart == null) {
-                    Optional<WorkingHourEntry> optWorkDay = getWorkingHourEntry(workingHours, day.getDayOfWeek());
-                    displayStart = optWorkDay.map(WorkingHourEntry::getStartTime).orElse(LocalTime.of(9, 0));
+                    displayStart = workDay.getStartTime();
                 }
 
                 // Handle rescheduled
@@ -110,6 +120,7 @@ public class ScheduleService {
                 dto.setSource(de.goaldone.backend.model.ScheduleEntry.SourceEnum.RECURRING);
                 dto.setTemplateId(org.openapitools.jackson.nullable.JsonNullable.of(template.getId()));
                 dto.setTemplateTitle(org.openapitools.jackson.nullable.JsonNullable.of(template.getTitle()));
+                dto.setTaskTitle(org.openapitools.jackson.nullable.JsonNullable.of(template.getTitle())); // Convenience field
                 dto.setOccurrenceDate(org.openapitools.jackson.nullable.JsonNullable.of(day));
                 dto.setDate(displayDate);
                 dto.setStartTime(displayStart.toString());
@@ -118,11 +129,39 @@ public class ScheduleService {
                 dto.setIsCompleted(ex != null && ex.getType() == RecurringExceptionType.COMPLETED);
                 dto.setIsPinned(ex != null && ex.getType() == RecurringExceptionType.PINNED);
 
-                result.add(dto);
+                entriesByDate.computeIfAbsent(displayDate, k -> new ArrayList<>()).add(dto);
             }
         }
 
-        // Sort by date and startTime
+        // Resolve overlaps per day
+        List<de.goaldone.backend.model.ScheduleEntry> result = new ArrayList<>();
+        for (Map.Entry<LocalDate, List<de.goaldone.backend.model.ScheduleEntry>> entry : entriesByDate.entrySet()) {
+            List<de.goaldone.backend.model.ScheduleEntry> dayEntries = entry.getValue();
+
+            // Sort: startTime ASC, then by source (ONE_TIME before RECURRING if same start), then priority (implicitly)
+            dayEntries.sort(Comparator.comparing(e -> LocalTime.parse(e.getStartTime())));
+
+            LocalTime currentFreeTime = null;
+            for (de.goaldone.backend.model.ScheduleEntry item : dayEntries) {
+                LocalTime itemStart = LocalTime.parse(item.getStartTime());
+                LocalTime itemEnd = LocalTime.parse(item.getEndTime());
+                int duration = (int) ChronoUnit.MINUTES.between(itemStart, itemEnd);
+
+                if (currentFreeTime != null && itemStart.isBefore(currentFreeTime)) {
+                    // Overlap detected -> shift!
+                    itemStart = currentFreeTime;
+                    itemEnd = itemStart.plusMinutes(duration);
+
+                    item.setStartTime(itemStart.toString());
+                    item.setEndTime(itemEnd.toString());
+                }
+
+                currentFreeTime = itemEnd;
+                result.add(item);
+            }
+        }
+
+        // Final sort for the whole range
         result.sort(Comparator.comparing(de.goaldone.backend.model.ScheduleEntry::getDate)
                 .thenComparing(e -> LocalTime.parse(e.getStartTime())));
 
@@ -168,25 +207,19 @@ public class ScheduleService {
         scheduleEntryRepository.deleteByUserIdAndEntryDateGreaterThanEqualAndIsCompletedFalseAndIsPinnedFalse(userId, from);
         scheduleEntryRepository.flush();
 
-        // 2b. Blocker-Map aufbauen: Map<LocalDate, Integer> blockerMinutes
-        Map<LocalDate, Integer> blockerMinutes = new HashMap<>();
+        // 2b. Sammle alle Blocker pro Tag (Completed, Pinned, Breaks, Recurring)
+        Map<LocalDate, List<BlockerItem>> dailyBlockers = new HashMap<>();
         LocalDate recurringWindowEnd = from.plusDays(28);
 
         // Completed Entries als Blocker
-        List<ScheduleEntry> completedEntries = scheduleEntryRepository
-                .findByUserIdAndEntryDateGreaterThanEqualAndIsCompletedTrue(userId, from);
-        for (ScheduleEntry e : completedEntries) {
-            int duration = (int) ChronoUnit.MINUTES.between(e.getStartTime(), e.getEndTime());
-            blockerMinutes.merge(e.getEntryDate(), duration, Integer::sum);
-        }
+        scheduleEntryRepository.findByUserIdAndEntryDateGreaterThanEqualAndIsCompletedTrue(userId, from)
+                .forEach(e -> dailyBlockers.computeIfAbsent(e.getEntryDate(), k -> new ArrayList<>())
+                        .add(new BlockerItem(e.getStartTime(), (int) ChronoUnit.MINUTES.between(e.getStartTime(), e.getEndTime()))));
 
         // Pinned Entries als Blocker
-        List<ScheduleEntry> pinnedEntries = scheduleEntryRepository
-                .findByUserIdAndEntryDateGreaterThanEqualAndIsPinnedTrue(userId, from);
-        for (ScheduleEntry e : pinnedEntries) {
-            int duration = (int) ChronoUnit.MINUTES.between(e.getStartTime(), e.getEndTime());
-            blockerMinutes.merge(e.getEntryDate(), duration, Integer::sum);
-        }
+        scheduleEntryRepository.findByUserIdAndEntryDateGreaterThanEqualAndIsPinnedTrue(userId, from)
+                .forEach(e -> dailyBlockers.computeIfAbsent(e.getEntryDate(), k -> new ArrayList<>())
+                        .add(new BlockerItem(e.getStartTime(), (int) ChronoUnit.MINUTES.between(e.getStartTime(), e.getEndTime()))));
 
         // 2c. Breaks als Blocker
         List<Break> userBreaks = breakRepository.findByUserId(userId);
@@ -194,39 +227,66 @@ public class ScheduleService {
             int breakDuration = (int) ChronoUnit.MINUTES.between(b.getStartTime(), b.getEndTime());
             for (LocalDate day = from; !day.isAfter(recurringWindowEnd); day = day.plusDays(1)) {
                 if (BreakService.breaksBlocksDay(b, day)) {
-                    blockerMinutes.merge(day, breakDuration, Integer::sum);
+                    dailyBlockers.computeIfAbsent(day, k -> new ArrayList<>())
+                            .add(new BlockerItem(b.getStartTime(), breakDuration));
                 }
             }
         }
 
         // 2d. RecurringTemplates als Blocker (28-Tage-Fenster)
-        List<RecurringTemplate> userTemplates = recurringTemplateRepository
-                .findByOwnerIdAndOrganizationId(userId, orgId);
-        List<UUID> templateIds = userTemplates.stream()
-                .map(RecurringTemplate::getId).collect(Collectors.toList());
-
+        List<RecurringTemplate> userTemplates = recurringTemplateRepository.findByOwnerIdAndOrganizationId(userId, orgId);
+        List<UUID> templateIds = userTemplates.stream().map(RecurringTemplate::getId).collect(Collectors.toList());
         final Map<String, RecurringException> exceptionsMap = new HashMap<>();
         if (!templateIds.isEmpty()) {
-            recurringExceptionRepository
-                    .findByTemplateIdInAndOccurrenceDateBetween(templateIds, from, recurringWindowEnd)
-                    .forEach(ex -> exceptionsMap.put(
-                            ex.getTemplate().getId() + "_" + ex.getOccurrenceDate(), ex));
+            recurringExceptionRepository.findByTemplateIdInAndOccurrenceDateBetween(templateIds, from, recurringWindowEnd)
+                    .forEach(ex -> exceptionsMap.put(ex.getTemplate().getId() + "_" + ex.getOccurrenceDate(), ex));
         }
 
         for (RecurringTemplate t : userTemplates) {
             for (LocalDate day = from; !day.isAfter(recurringWindowEnd); day = day.plusDays(1)) {
-                if (!recurrenceMatchesDay(t.getRecurrenceType(), t.getRecurrenceInterval(),
-                        t.getCreatedAt().toLocalDate(), day)) {
-                    continue;
-                }
+                // Skip non-workdays
+                Optional<WorkingHourEntry> optWorkDay = getWorkingHourEntry(workingHours, day.getDayOfWeek());
+                if (optWorkDay.isEmpty() || !optWorkDay.get().isWorkDay()) continue;
+
+                if (!recurrenceMatchesDay(t.getRecurrenceType(), t.getRecurrenceInterval(), t.getCreatedAt().toLocalDate(), day)) continue;
+                
                 String key = t.getId() + "_" + day;
                 RecurringException ex = exceptionsMap.get(key);
-                // Kein Budgetabzug wenn SKIPPED
-                if (ex != null && ex.getType() == RecurringExceptionType.SKIPPED) {
-                    continue;
+                if (ex != null && ex.getType() == RecurringExceptionType.SKIPPED) continue;
+
+                LocalTime start = t.getPreferredStartTime();
+                if (start == null) start = optWorkDay.get().getStartTime();
+                
+                if (ex != null && ex.getType() == RecurringExceptionType.RESCHEDULED) {
+                    // Falls auf einen anderen Tag verschoben, ignorieren wir es hier der Einfachheit halber (oder adden es am Ziel-Tag)
+                    // Für das Budget nehmen wir den Original-Tag an, es sei denn es ist SKIPPED
+                    if (ex.getNewStartTime() != null) start = ex.getNewStartTime();
                 }
-                blockerMinutes.merge(day, t.getDurationMinutes(), Integer::sum);
+                dailyBlockers.computeIfAbsent(day, k -> new ArrayList<>()).add(new BlockerItem(start, t.getDurationMinutes()));
             }
+        }
+
+        // Berechne blockerMinutes Map durch Auflösung der Überlappungen
+        Map<LocalDate, Integer> blockerMinutes = new HashMap<>();
+        for (Map.Entry<LocalDate, List<BlockerItem>> entry : dailyBlockers.entrySet()) {
+            List<BlockerItem> items = entry.getValue();
+            items.sort(Comparator.comparing(i -> i.start));
+
+            int totalDailyBlocker = 0;
+            LocalTime currentFreeTime = null;
+            for (BlockerItem item : items) {
+                LocalTime itemStart = item.start;
+                if (currentFreeTime != null && itemStart.isBefore(currentFreeTime)) {
+                    itemStart = currentFreeTime;
+                }
+                LocalTime itemEnd = itemStart.plusMinutes(item.duration);
+                int actualDuration = (int) ChronoUnit.MINUTES.between(itemStart, itemEnd);
+                if (actualDuration > 0) {
+                    totalDailyBlocker += actualDuration;
+                    currentFreeTime = itemEnd;
+                }
+            }
+            blockerMinutes.put(entry.getKey(), totalDailyBlocker);
         }
 
         // ══════════════════════════════════════════════════════════
@@ -528,6 +588,18 @@ public class ScheduleService {
         void setRestDurationMinutes(int value) { this.restDurationMinutes = value; }
         int getSlack() { return slack; }
         void setSlack(int value) { this.slack = value; }
+    }
+
+    /**
+     * Helper class for budget calculation.
+     */
+    private static class BlockerItem {
+        LocalTime start;
+        int duration;
+        BlockerItem(LocalTime start, int duration) {
+            this.start = start;
+            this.duration = duration;
+        }
     }
 
     /**

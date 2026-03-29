@@ -59,6 +59,12 @@ public class TaskService {
         validationService.requireNotNull(request.getCognitiveLoad(), "cognitiveLoad");
         validationService.requirePositive(request.getEstimatedDurationMinutes(), "estimatedDurationMinutes");
 
+        validationService.requireNotBefore(
+                request.getDeadline().orElse(null),
+                request.getStartDate().orElse(null),
+                "deadline"
+        );
+
         User owner = userRepository.findById(ownerId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         Organization customOrg = organizationRepository.findById(orgId)
@@ -116,6 +122,10 @@ public class TaskService {
         if (!task.getOwner().getId().equals(ownerId)) {
             throw new AccessDeniedException("Access denied: You do not own this task");
         }
+
+        java.time.LocalDate newDeadline = request.getDeadline().isPresent() ? request.getDeadline().get() : task.getDeadline();
+        java.time.LocalDate newStartDate = request.getStartDate().isPresent() ? request.getStartDate().get() : task.getStartDate();
+        validationService.requireNotBefore(newDeadline, newStartDate, "deadline");
 
         if (request.getTitle() != null) {
              task.setTitle(request.getTitle());
